@@ -7,10 +7,19 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
 
-from discretize import Dataset
+def prepare_data_single_output(d, window_size = 70, shift_direction=-1, dt=60, with_time=True, **kwargs):
+    series_sensor_data = d.sensor_values_reshape(dt)
+    if with_time:
+        series_sensor_data['hour'] = series_sensor_data.index.hour
+    data = np.zeros((len(series_sensor_data), window_size, series_sensor_data.shape[1]))
+    output = series_sensor_data.shift(shift_direction*window_size).values
+    for i in range(window_size):
+        data[:, i, :] = series_sensor_data.shift(shift_direction*i)
+    if shift_direction == 1:
+        return data[window_size:, :, :]
+    return data[:-window_size, :, :], output[:-window_size, :]
 
-
-def prepare_data(d: Dataset, window_size = 70, shift_direction=1, dt=60, with_time=True):
+def prepare_data(d, window_size = 70, shift_direction=-1, dt=60, with_time=True, **kwargs):
     series_sensor_data = d.sensor_values_reshape(dt)
     if with_time:
         series_sensor_data['hour'] = series_sensor_data.index.hour
@@ -19,7 +28,7 @@ def prepare_data(d: Dataset, window_size = 70, shift_direction=1, dt=60, with_ti
         data[:, i, :] = series_sensor_data.shift(shift_direction*i)
     if shift_direction == 1:
         return data[window_size:, :, :]
-    return data[:-window_size, :, :]
+    return data[:-window_size, :, :], data[:-window_size, :, :]
 
 def load_model(timesteps, n_features, lr, path):
     model = get_model(timesteps, n_features, lr)
@@ -31,31 +40,38 @@ def get_model(timesteps, n_features, lr):
     lstm_autoencoder.add(
         LSTM(32, activation='relu', input_shape=(timesteps, n_features), return_sequences=True))
     lstm_autoencoder.add(LSTM(16, activation='relu', return_sequences=False))
-    lstm_autoencoder.add(RepeatVector(timesteps))
+    lstm_autoencoder.add(RepeatVector(1))
     # Decoder
     lstm_autoencoder.add(LSTM(16, activation='relu', return_sequences=True))
     lstm_autoencoder.add(LSTM(32, activation='relu', return_sequences=True))
     lstm_autoencoder.add(TimeDistributed(Dense(n_features)))
     lstm_autoencoder.add(Activation('sigmoid'))
+    lstm_autoencoder.add(Dense(n_features))
 
     adam = Adam(lr)
     lstm_autoencoder.compile(loss='mse', optimizer=adam)
     return lstm_autoencoder
 
-def train(d: Dataset, lookback=70, epochs=200, batch=24, lr=0.0004, dt=60, shift_direction=-1,
-          with_time=True):
-    X = prepare_data(d, window_size=lookback, dt=dt, shift_direction=shift_direction,
-                     with_time=with_time)
-    X_test = X[-2*(3600//dt)*24:]
-    X_validation = X[-4*(3600//dt)*24:-2*(3600//dt)*24]
-    X_train = X[:-4*(3600//dt)*24]
+def train(d, dt=60, **kwargs):
+    window_size = kwargs.setdefault('window_size', 60) #Number of steps to look back
+    epochs = kwargs.setdefault('epochs', 200)
+    batch = kwargs.setdefault('batch', 24)
+    lr = kwargs.setdefault('lr', 0.0004)
 
-    timesteps = lookback  # equal to the lookback
+
+    X, y = prepare_data(d, **kwargs)
+    X_test = X[-2*(3600//dt)*24:]
+    y_test = y[-2*(3600//dt)*24:]
+    X_validation = X[-4*(3600//dt)*24:-2*(3600//dt)*24]
+    y_validation = y[-4*(3600//dt)*24:-2*(3600//dt)*24]
+    X_train = X[:-4*(3600//dt)*24]
+    y_train = y[:-4*(3600//dt)*24]
+
     n_features = X.shape[2]  # 59
-    model = get_model(timesteps, n_features, lr)
+    model = get_model(n_features=n_features, timesteps=window_size, lr=lr)
     cp = ModelCheckpoint(filepath="lstm_autoencoder_classifier.h5",
                          verbose=0)
-    lstm_autoencoder_history = model.fit(X_train, X_train, epochs=epochs,
+    lstm_autoencoder_history = model.fit(X_train, y_train, epochs=epochs,
                                                     batch_size=batch, verbose=2,
                                          validation_data=(X_validation, X_validation),
                                                     callbacks=[cp]
@@ -85,7 +101,7 @@ def train(d: Dataset, lookback=70, epochs=200, batch=24, lr=0.0004, dt=60, shift
     sns.distplot(np.mean(np.abs(X_pred_test - Xtest), axis=1), ax=ax)
     plt.show()
 
-    plot_sensor_predictions(d, dt, X_pred_test, Xtest, lookback, with_time)
+    plot_sensor_predictions(d, dt, X_pred_test, Xtest, window_size, False)
     return model
 
 def plot_sensor_predictions(d, dt, X_pred, Xtest, lookback, with_time=False):
@@ -99,7 +115,7 @@ def plot_sensor_predictions(d, dt, X_pred, Xtest, lookback, with_time=False):
     ).astype('datetime64[ns]')
     data.index = time
     time = time[lookback:]
-    X_test_time = time[-(3600//dt) * 24:]
+    X_test_time = time[-2 * (3600//dt) * 24:]
     if with_time:
         df = pd.DataFrame(X_pred[:,:-1]-Xtest[:,:-1], columns=data.columns, index=X_test_time)
         df_pred = pd.DataFrame(X_pred[:,:-1], columns=data.columns, index=X_test_time)

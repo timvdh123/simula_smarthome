@@ -11,6 +11,7 @@ from hmmlearn import hmm
 import hmmlearn.utils
 import hmmlearn.stats
 
+from lstm import train
 from similarity import LOF, isolation_forest, isolation_forest_all
 
 
@@ -238,6 +239,7 @@ if __name__ == '__main__':
     bathroom1 = Dataset.parse('dataset/', 'bathroom1')
     kitchen1 = Dataset.parse('dataset/', 'kitchen1')
     combined = bathroom1.combine(kitchen1)
+    train(combined)
     combined.sensor_data_summary()
     LOF(combined, ['duration'], 2)
     isolation_forest(combined)
