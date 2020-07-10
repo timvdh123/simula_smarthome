@@ -14,7 +14,9 @@ import hmmlearn.stats
 from similarity import LOF, isolation_forest, isolation_forest_all
 
 
-class Data:
+class Dataset:
+    """Class to parse and store the dataset.
+    """
     def __init__(self, prefix, sensor_data, activity_data, sensor_labels, activity_labels):
         self.prefix: pd.DataFrame = prefix
         self.sensor_data: pd.DataFrame = sensor_data
@@ -23,10 +25,12 @@ class Data:
         self.activity_labels: pd.DataFrame = activity_labels
 
     def combine(self, other):
+        """Combines multiple datasets (different rooms) into a single dataset.
+        """
         sensor_data = pd.concat((self.sensor_data, other.sensor_data))
         activity_data = pd.concat((self.activity_data, other.activity_data))
 
-        return Data(
+        return Dataset(
             'combined[%s/%s]' % (self.prefix, other.prefix),
             sensor_data,
             activity_data,
@@ -34,42 +38,65 @@ class Data:
             self.activity_labels.copy()
         )
 
-    def __set_previous_activation_times(self):
+    def _set_previous_activation_times(self):
         for id in self.sensor_data.id.unique():
             sensor_data = self.sensor_data.loc[self.sensor_data.id == id]
             sorted_start_time = sensor_data.sort_values(by=['start_time'])
             sorted_start_time['prev_end_time'] = sorted_start_time.shift(1)['end_time']
 
 
-    def lookup_sensor_id(self, id):
+    def lookup_sensor_id(self, id: int) -> str:
+        """Looks up the name of a sensor using the id.
+
+        :param id: the sensor id (int)
+        :type id: int
+        :return: the name of the sensor, or a ValueError if there is no sensor with that ID.
+        :rtype: str
+        """
         values = self.sensor_labels.loc[self.sensor_labels.id == id, 'label']
         if len(values) == 0:
             raise ValueError("No such sensor with id=%s" % id)
         return values.values[0]
 
     def lookup_activity_id(self, id):
+        """Looks up the name of an activity using the id.
+
+        :param id: the activity id (int)
+        :type id: int
+        :return: the name of the activity, or a ValueError if there is no activity with that ID.
+        :rtype: str
+        """
         values = self.activity_labels.loc[self.activity_labels.id == id, 'label']
         if len(values) == 0:
             raise ValueError("No such activity with id=%s" % id)
         return values.values[0]
 
     @staticmethod
-    def parse(prefix):
-        df = pd.read_csv('{:s}.ss.csv'.format(prefix))
+    def parse(path, prefix):
+        """Parses a data file.
+
+        :param path: the path to the folder that contains the file
+        :type path: str
+        :param prefix: the name of the room
+        :type prefix: str
+        :return: a Dataset containing the sensor data, activity labels, etc.
+        """
+        df = pd.read_csv('{:s}{:s}.ss.csv'.format(path, prefix))
         df['start_time'] = pd.to_datetime(df['start_time'])
         df['end_time'] = pd.to_datetime(df['end_time'])
 
-        df_as = pd.read_csv('{:s}.as.csv'.format(prefix))
+        df_as = pd.read_csv('{:s}{:s}.as.csv'.format(path, prefix))
         df_as['start_time'] = pd.to_datetime(df_as['start_time'])
         df_as['end_time'] = pd.to_datetime(df_as['end_time'])
 
-        activity_labels = pd.read_csv('{:s}.activity_labels.csv'.format(prefix), delimiter=',,')
-        sensor_labels = pd.read_csv('{:s}.sensor_labels.csv'.format(prefix), delimiter=',,')
-        return Data(prefix, df, df_as, sensor_labels, activity_labels)
+        activity_labels = pd.read_csv('{:s}{:s}.activity_labels.csv'.format(path, prefix),
+                                      delimiter=',,')
+        sensor_labels = pd.read_csv('{:s}{:s}.sensor_labels.csv'.format(path, prefix),
+                                    delimiter=',,')
+        return Dataset(prefix, df, df_as, sensor_labels, activity_labels)
 
     def plot_sensor_values(self):
         for id in self.sensor_data.id.unique():
-            print(id)
             data_weekday = self.sensor_data.loc[(self.sensor_data.id == id) & (
                     self.sensor_data.start_time.dt.dayofweek < 5)]
             data_weekend = self.sensor_data.loc[(self.sensor_data.id == id) & (self.sensor_data.start_time.dt.dayofweek >= 5)]
@@ -78,12 +105,16 @@ class Data:
                 'start_time'].dt.minute
             sensors_duration_weekday = (data_weekday['end_time'] - data_weekday['start_time']).astype('timedelta64[s]')
             sensors_duration_weekend = (data_weekend['end_time'] - data_weekend['start_time']).astype('timedelta64[s]')
+
+            # Plot sensor activation times.
             fig, ax = plt.subplots()
             ax.set_title('Sensor activation distribution\n%s' % self.lookup_sensor_id(id))
             sns.distplot(sensors_start_time_weekday, ax=ax, label='weekday')
             sns.distplot(sensors_start_time_weekend, ax=ax, label='weekend')
             ax.legend()
             plt.show()
+
+            # Plot sensor activation times and duration in a scatter plot.
             fig, ax = plt.subplots()
             ax.set_title('Sensor duration distribution\n%s' % self.lookup_sensor_id(id))
             sns.scatterplot(sensors_start_time_weekday, sensors_duration_weekday, ax=ax,
@@ -95,10 +126,13 @@ class Data:
 
 
     def last_fired(self, dt = 60):
+        """Convert the sensor data into the 'last fired' representation. Windows the data into
+        dt second bins.
+        """
         time = np.arange(
             start=pd.Timestamp(self.sensor_data.start_time.min().date()),
             stop=pd.Timestamp(self.sensor_data.end_time.max().date() + pd.Timedelta(1, 'day')),
-            step=pd.to_timedelta(60, 's')
+            step=pd.to_timedelta(dt, 's')
         ).astype('datetime64[ns]')
         sensor_label_indices = list(self.sensor_data.id.unique())
         table = np.zeros((len(time), len(sensor_label_indices)))
@@ -123,6 +157,9 @@ class Data:
         return table
 
     def sensor_values_reshape(self, dt=60):
+        """Discretizes the sensor data into bins. Sensor value is 1 if a bin overlaps with
+        start_time, end_time.
+        """
         time = np.arange(
             start=pd.Timestamp(self.sensor_data.start_time.min().date()),
             stop=pd.Timestamp(self.sensor_data.end_time.max().date() + pd.Timedelta(1, 'day')),
@@ -147,6 +184,9 @@ class Data:
                             index=time)
 
     def activity_reshape(self):
+        """Discretizes the activity data into bins. Value is activity_id if a bin overlaps with
+        start_time, end_time."""
+
         time = np.arange(
             start=pd.Timestamp(self.sensor_data.start_time.min().date()),
             stop=pd.Timestamp(self.sensor_data.end_time.max().date() + pd.Timedelta(1, 'day')),
@@ -169,6 +209,7 @@ class Data:
         return table.astype(int)
 
     def learn_hmm(self):
+        """Learns a multinomial hidden markovel model over the sensor data."""
         remodel = hmm.MultinomialHMM(n_components=self.sensor_data.id.nunique(),
                                      n_iter=100, tol=1e-8)
         table = self.last_fired()
@@ -186,6 +227,7 @@ class Data:
         return remodel
 
     def sensor_data_summary(self):
+        """Prints a summary of the data"""
         for id in self.sensor_data.id.unique():
             data = self.sensor_data.loc[self.sensor_data.id == id]
             print("\nSensor %s was activated %d times" % (self.lookup_sensor_id(id), len(data)))
@@ -193,31 +235,15 @@ class Data:
             print("Mean activation time: %5.2f +- %3.2e s" % (duration.mean(), duration.std()))
 # %%
 if __name__ == '__main__':
-    bathroom1 = Data.parse('bathroom1')
-    kitchen1 = Data.parse('kitchen1')
+    bathroom1 = Dataset.parse('dataset/', 'bathroom1')
+    kitchen1 = Dataset.parse('dataset/', 'kitchen1')
     combined = bathroom1.combine(kitchen1)
-    # combined.sensor_data_summary()
-    # LOF_all_data(combined)
-    # LOF(combined, ['duration'], 2)
-    isolation_forest_all(combined)
-    # combined.plot_sensor_values()
+    combined.sensor_data_summary()
+    LOF(combined, ['duration'], 2)
+    isolation_forest(combined)
 
-    bathroom2 = Data.parse('bathroom2')
-    kitchen2 = Data.parse('kitchen2')
+    bathroom2 = Dataset.parse('dataset/', 'bathroom2')
+    kitchen2 = Dataset.parse('dataset/', 'kitchen2')
     combined2 = bathroom2.combine(kitchen2)
-    # combined2.sensor_data_summary()
-    # combined2.plot_sensor_values()
-    # LOF(combined2)
-    # d = combined.sensor_values_reshape()
-    # d[8].head(4*24*60).plot()
-    # plt.show()
-
-    # model = combined.learn_hmm()
-    # table = bathroom1.last_fired()
-    # bathroom1.plot_sensor_values()
-    # kitchen1.plot_sensor_values()
-    # bathroom2 = Data.parse('bathroom2')
-    # kitchen2 = Data.parse('kitchen2')
-    # kitchen2.plot_sensor_values()
 
 
