@@ -1,0 +1,24 @@
+label,,id
+mat bed rechts, drukmat,,5
+mat bank, huiskamer,,6
+vriezer, reed,,7
+toilet flush boven, flush ,,8
+toilet flush beneden. flush ,,10
+badkamer klapdeur links,,11
+zelfde la als 18, kwik,,13
+La sleutels,,15
+badkamer klapdeur links,,16
+bestek la, kwik sensor ,,18
+kastje pannen, reed ,,20
+magnetron, reed ,,21
+kastje restjesbakjes, reed ,,22
+kastje borden/kruiden,reed ,,23
+deur toilet beneden,,25
+kastje cups/bowl/tuna, reed ,,27
+voordeur, reed ,,28
+deur slaapkamer,,29
+koelkast, reed ,,30
+badkuip, pir ,,35
+dresser, pir ,,36
+wasbak boven, flush ,,38
+mat bed links, drukmat ,,39
