@@ -7,10 +7,10 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
 
-from discretize import Data
+from discretize import Dataset
 
 
-def prepare_data(d: Data, window_size = 70, shift_direction=1, dt=60, with_time=True):
+def prepare_data(d: Dataset, window_size = 70, shift_direction=1, dt=60, with_time=True):
     series_sensor_data = d.sensor_values_reshape(dt)
     if with_time:
         series_sensor_data['hour'] = series_sensor_data.index.hour
@@ -42,7 +42,7 @@ def get_model(timesteps, n_features, lr):
     lstm_autoencoder.compile(loss='mse', optimizer=adam)
     return lstm_autoencoder
 
-def train(d: Data, lookback=70, epochs=200, batch=24, lr=0.0004, dt=60, shift_direction=-1,
+def train(d: Dataset, lookback=70, epochs=200, batch=24, lr=0.0004, dt=60, shift_direction=-1,
           with_time=True):
     X = prepare_data(d, window_size=lookback, dt=dt, shift_direction=shift_direction,
                      with_time=with_time)
