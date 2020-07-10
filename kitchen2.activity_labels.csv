@@ -1,0 +1,31 @@
+label,,id
+leave house,,1
+,,2
+Eating,,3
+use toilet downstairs,,4
+take shower,,5
+brush teeth,,6
+use toilet upstairs,,7
+take bath,,8
+shave,,9
+go to bed,,10
+get dressed,,11
+take medication,,12
+prepare Breakfast,,13
+prepare Lunch,,14
+prepare Dinner,,15
+get snack,,16
+get drink,,17
+put items in dishwasher,,18
+unload dishwasher,,19
+store groceries,,20
+Grooming (Collection of 6,9,12,22),,21
+put clothes in washingmachine,,22
+unload washingmachine,,23
+,,24
+receive guest,,25
+watch tv,,26
+read paper,,27
+relax,,28
+,,29
+Unknown,,30
