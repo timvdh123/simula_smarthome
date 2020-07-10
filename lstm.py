@@ -7,7 +7,8 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
 
-def prepare_data_single_output(d, window_size = 70, shift_direction=-1, dt=60, with_time=True, **kwargs):
+def prepare_data_single_output(d, window_size = 70, shift_direction=-1, dt=60, with_time=False,
+                               **kwargs):
     series_sensor_data = d.sensor_values_reshape(dt)
     if with_time:
         series_sensor_data['hour'] = series_sensor_data.index.hour
@@ -19,7 +20,7 @@ def prepare_data_single_output(d, window_size = 70, shift_direction=-1, dt=60, w
         return data[window_size:, :, :]
     return data[:-window_size, :, :], output[:-window_size, :]
 
-def prepare_data(d, window_size = 70, shift_direction=-1, dt=60, with_time=True, **kwargs):
+def prepare_data(d, window_size = 70, shift_direction=-1, dt=60, with_time=False, **kwargs):
     series_sensor_data = d.sensor_values_reshape(dt)
     if with_time:
         series_sensor_data['hour'] = series_sensor_data.index.hour
@@ -52,14 +53,15 @@ def get_model(timesteps, n_features, lr):
     lstm_autoencoder.compile(loss='mse', optimizer=adam)
     return lstm_autoencoder
 
-def train(d, dt=60, **kwargs):
+def train(d, **kwargs):
     window_size = kwargs.setdefault('window_size', 60) #Number of steps to look back
     epochs = kwargs.setdefault('epochs', 200)
     batch = kwargs.setdefault('batch', 24)
     lr = kwargs.setdefault('lr', 0.0004)
+    dt = kwargs.setdefault('dt', 600)
 
 
-    X, y = prepare_data(d, **kwargs)
+    X, y = prepare_data_single_output(d, **kwargs)
     X_test = X[-2*(3600//dt)*24:]
     y_test = y[-2*(3600//dt)*24:]
     X_validation = X[-4*(3600//dt)*24:-2*(3600//dt)*24]
@@ -73,7 +75,7 @@ def train(d, dt=60, **kwargs):
                          verbose=0)
     lstm_autoencoder_history = model.fit(X_train, y_train, epochs=epochs,
                                                     batch_size=batch, verbose=2,
-                                         validation_data=(X_validation, X_validation),
+                                         validation_data=(X_validation, y_validation),
                                                     callbacks=[cp]
                                                     ).history
     plt.plot(lstm_autoencoder_history['loss'], linewidth=2, label='Train')
@@ -92,21 +94,21 @@ def train(d, dt=60, **kwargs):
     sns.distplot(np.mean(np.abs(X_pred - Xtrain), axis=1), ax=ax)
     plt.show()
 
-    X_pred_test = model.predict(X_test)
-    X_pred_test = X_pred_test[:, 0, :].reshape(X_test.shape[0], X_test.shape[2])
-    Xtest = X_test[:, 0, :].reshape(X_test.shape[0], X_test.shape[2])
+    yPredTest = model.predict(X_test)
+    yPredTest = yPredTest[:, 0, :].reshape(X_test.shape[0], X_test.shape[2])
 
     fig, ax = plt.subplots()
     ax.set_title("Loss distribution")
-    sns.distplot(np.mean(np.abs(X_pred_test - Xtest), axis=1), ax=ax)
+    sns.distplot(np.mean(np.abs(yPredTest - y_test), axis=1), ax=ax)
     plt.show()
 
-    plot_sensor_predictions(d, dt, X_pred_test, Xtest, window_size, False)
+    plot_sensor_predictions(d, dt, yPredTest, y_test, window_size, False)
     return model
 
-def plot_sensor_predictions(d, dt, X_pred, Xtest, lookback, with_time=False):
+def plot_sensor_predictions(d, dt, yPred, yTest, lookback, with_time=False):
+    print(yPred.shape)
     data = d.sensor_values_reshape(dt)
-    anomaly = np.mean(np.abs(X_pred - Xtest), axis=1) > 0.025
+    anomaly = np.mean(np.abs(yPred - yTest), axis=1) > 0.025
 
     time = np.arange(
         start=pd.Timestamp(d.sensor_data.start_time.min().date()),
@@ -116,14 +118,15 @@ def plot_sensor_predictions(d, dt, X_pred, Xtest, lookback, with_time=False):
     data.index = time
     time = time[lookback:]
     X_test_time = time[-2 * (3600//dt) * 24:]
+    print(X_test_time.shape)
     if with_time:
-        df = pd.DataFrame(X_pred[:,:-1]-Xtest[:,:-1], columns=data.columns, index=X_test_time)
-        df_pred = pd.DataFrame(X_pred[:,:-1], columns=data.columns, index=X_test_time)
-        df_test = pd.DataFrame(Xtest[:,:-1], columns=data.columns, index=X_test_time)
+        df = pd.DataFrame(yPred[:, :-1] - yTest[:, :-1], columns=data.columns, index=X_test_time)
+        df_pred = pd.DataFrame(yPred[:, :-1], columns=data.columns, index=X_test_time)
+        df_test = pd.DataFrame(yTest[:, :-1], columns=data.columns, index=X_test_time)
     else:
-        df = pd.DataFrame(X_pred - Xtest, columns=data.columns, index=X_test_time)
-        df_pred = pd.DataFrame(X_pred, columns=data.columns, index=X_test_time)
-        df_test = pd.DataFrame(Xtest, columns=data.columns, index=X_test_time)
+        df = pd.DataFrame(yPred - yTest, columns=data.columns, index=X_test_time)
+        df_pred = pd.DataFrame(yPred, columns=data.columns, index=X_test_time)
+        df_test = pd.DataFrame(yTest, columns=data.columns, index=X_test_time)
 
     # print(X_test_time[anomaly])
     series_sensor_data = d.sensor_values_reshape(600)
