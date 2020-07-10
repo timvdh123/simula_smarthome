@@ -57,7 +57,7 @@ def train(d: Dataset, lookback=70, epochs=200, batch=24, lr=0.0004, dt=60, shift
                          verbose=0)
     lstm_autoencoder_history = model.fit(X_train, X_train, epochs=epochs,
                                                     batch_size=batch, verbose=2,
-                                         validation_data=X_validation,
+                                         validation_data=(X_validation, X_validation),
                                                     callbacks=[cp]
                                                     ).history
     plt.plot(lstm_autoencoder_history['loss'], linewidth=2, label='Train')
