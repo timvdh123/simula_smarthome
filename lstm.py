@@ -115,7 +115,7 @@ def plot_sensor_predictions(d, dt, X_pred, Xtest, lookback, with_time=False):
     ).astype('datetime64[ns]')
     data.index = time
     time = time[lookback:]
-    X_test_time = time[-2 * (3600//dt) * 24:]
+    X_test_time = time[-1 * (3600//dt) * 24:]
     if with_time:
         df = pd.DataFrame(X_pred[:,:-1]-Xtest[:,:-1], columns=data.columns, index=X_test_time)
         df_pred = pd.DataFrame(X_pred[:,:-1], columns=data.columns, index=X_test_time)
