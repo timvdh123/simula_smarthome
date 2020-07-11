@@ -5,7 +5,7 @@ import seaborn as sns
 from sklearn import metrics
 from sklearn.utils import class_weight
 from tensorflow.keras.callbacks import ModelCheckpoint
-from tensorflow.keras.layers import Dense, LSTM
+from tensorflow.keras.layers import Dense, LSTM, Dropout
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.optimizers import Adam
 
@@ -54,18 +54,17 @@ def get_model(timesteps, n_features, lr):
     return lstm_autoencoder
 
 def get_model_individual_sensor(timesteps, n_features, lr):
-    lstm_autoencoder = Sequential()
-    lstm_autoencoder.add(LSTM(10, activation='relu', input_shape=(timesteps, n_features),
+    lstm_regular = Sequential()
+    lstm_regular.add(LSTM(15, activation='relu', input_shape=(timesteps, n_features),
                               return_sequences=True))
-    lstm_autoencoder.add(LSTM(6, activation='relu', return_sequences=True))
-    lstm_autoencoder.add(LSTM(1, activation='relu'))
-    lstm_autoencoder.add(Dense(10, kernel_initializer='glorot_normal', activation='relu'))
-    lstm_autoencoder.add(Dense(10, kernel_initializer='glorot_normal', activation='relu'))
-    lstm_autoencoder.add(Dense(1, activation='sigmoid'))
+    lstm_regular.add(LSTM(8, activation='relu', return_sequences=False))
+    lstm_regular.add(Dense(10, kernel_initializer='glorot_normal', activation='relu'))
+    lstm_regular.add(Dense(10, kernel_initializer='glorot_normal', activation='relu'))
+    lstm_regular.add(Dense(1, activation='sigmoid'))
     adam = Adam(lr)
-    lstm_autoencoder.compile(loss='binary_crossentropy', optimizer=adam, metrics=['accuracy'])
-    lstm_autoencoder.summary()
-    return lstm_autoencoder
+    lstm_regular.compile(loss='binary_crossentropy', optimizer=adam, metrics=['accuracy'])
+    lstm_regular.summary()
+    return lstm_regular
 
 def train_every_sensor(d, **kwargs):
     window_size = kwargs.setdefault('window_size', 60) #Number of steps to look back
