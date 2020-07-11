@@ -1,12 +1,12 @@
-import numpy as np
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, LSTM, RepeatVector, TimeDistributed, Activation
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.callbacks import ModelCheckpoint, TensorBoard
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import seaborn as sns
 from sklearn import metrics
+from tensorflow.keras.callbacks import ModelCheckpoint
+from tensorflow.keras.layers import Dense, LSTM
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.optimizers import Adam
 
 
 def prepare_data_single_output(d, window_size = 70, shift_direction=-1, dt=60, with_time=False,
@@ -39,11 +39,6 @@ def load_model(timesteps, n_features, lr, path):
     return model
 
 def get_model(timesteps, n_features, lr):
-    return get_model_regular(timesteps, n_features, lr)
-
-def get_model_regular(timesteps, n_features, lr):
-    # Regular LSTM model from
-    # https://www.kaggle.com/dimitreoliveira/time-series-forecasting-with-lstm-autoencoders
     lstm_autoencoder = Sequential()
     lstm_autoencoder.add(LSTM(10, activation='relu', input_shape=(timesteps, n_features),
                               return_sequences=True))
@@ -51,7 +46,7 @@ def get_model_regular(timesteps, n_features, lr):
     lstm_autoencoder.add(LSTM(1, activation='relu'))
     lstm_autoencoder.add(Dense(10, kernel_initializer='glorot_normal', activation='relu'))
     lstm_autoencoder.add(Dense(10, kernel_initializer='glorot_normal', activation='relu'))
-    lstm_autoencoder.add(Dense(n_features))
+    lstm_autoencoder.add(Dense(n_features, activation='sigmoid'))
     adam = Adam(lr)
     lstm_autoencoder.compile(loss='binary_crossentropy', optimizer=adam)
     lstm_autoencoder.summary()
@@ -61,7 +56,7 @@ def train(d, **kwargs):
     window_size = kwargs.setdefault('window_size', 60) #Number of steps to look back
     epochs = kwargs.setdefault('epochs', 200)
     batch = kwargs.setdefault('batch', 24)
-    lr = kwargs.setdefault('lr', 0.0004)
+    lr = kwargs.setdefault('lr', 0.004)
     dt = kwargs.setdefault('dt', 600)
 
 
@@ -80,11 +75,13 @@ def train(d, **kwargs):
 
     cp = ModelCheckpoint(filepath="lstm_autoencoder_classifier.h5",
                          verbose=0)
-    lstm_autoencoder_history = model.fit(X_train, y_train, epochs=epochs,
-                                                    batch_size=batch, verbose=2,
+    lstm_autoencoder_history = model.fit(X_train, y_train,
+                                         epochs=epochs,
+                                         batch_size=batch,
+                                         verbose=2,
                                          validation_data=(X_validation, y_validation),
-                                                    callbacks=[cp]
-                                                    ).history
+                                         callbacks=[cp],
+                                         ).history
     plt.plot(lstm_autoencoder_history['loss'], linewidth=2, label='Train')
     plt.legend(loc='upper right')
     plt.title('Model loss')
