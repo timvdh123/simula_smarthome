@@ -6,6 +6,8 @@ from tensorflow.keras.callbacks import ModelCheckpoint, TensorBoard
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
+from sklearn import metrics
+
 
 def prepare_data_single_output(d, window_size = 70, shift_direction=-1, dt=60, with_time=False,
                                **kwargs):
@@ -37,20 +39,22 @@ def load_model(timesteps, n_features, lr, path):
     return model
 
 def get_model(timesteps, n_features, lr):
-    lstm_autoencoder = Sequential()
-    lstm_autoencoder.add(
-        LSTM(32, activation='relu', input_shape=(timesteps, n_features), return_sequences=True))
-    lstm_autoencoder.add(LSTM(16, activation='relu', return_sequences=False))
-    lstm_autoencoder.add(RepeatVector(1))
-    # Decoder
-    lstm_autoencoder.add(LSTM(16, activation='relu', return_sequences=True))
-    lstm_autoencoder.add(LSTM(32, activation='relu', return_sequences=True))
-    lstm_autoencoder.add(TimeDistributed(Dense(n_features)))
-    lstm_autoencoder.add(Activation('sigmoid'))
-    lstm_autoencoder.add(Dense(n_features))
+    return get_model_regular(timesteps, n_features, lr)
 
+def get_model_regular(timesteps, n_features, lr):
+    # Regular LSTM model from
+    # https://www.kaggle.com/dimitreoliveira/time-series-forecasting-with-lstm-autoencoders
+    lstm_autoencoder = Sequential()
+    lstm_autoencoder.add(LSTM(10, activation='relu', input_shape=(timesteps, n_features),
+                              return_sequences=True))
+    lstm_autoencoder.add(LSTM(6, activation='relu', return_sequences=True))
+    lstm_autoencoder.add(LSTM(1, activation='relu'))
+    lstm_autoencoder.add(Dense(10, kernel_initializer='glorot_normal', activation='relu'))
+    lstm_autoencoder.add(Dense(10, kernel_initializer='glorot_normal', activation='relu'))
+    lstm_autoencoder.add(Dense(n_features))
     adam = Adam(lr)
-    lstm_autoencoder.compile(loss='mse', optimizer=adam)
+    lstm_autoencoder.compile(loss='binary_crossentropy', optimizer=adam)
+    lstm_autoencoder.summary()
     return lstm_autoencoder
 
 def train(d, **kwargs):
@@ -69,8 +73,11 @@ def train(d, **kwargs):
     X_train = X[:-4*(3600//dt)*24]
     y_train = y[:-4*(3600//dt)*24]
 
+
     n_features = X.shape[2]  # 59
     model = get_model(n_features=n_features, timesteps=window_size, lr=lr)
+    print("Training data shape %s" % str(X_train.shape))
+
     cp = ModelCheckpoint(filepath="lstm_autoencoder_classifier.h5",
                          verbose=0)
     lstm_autoencoder_history = model.fit(X_train, y_train, epochs=epochs,
@@ -85,17 +92,21 @@ def train(d, **kwargs):
     plt.xlabel('Epoch')
     plt.show()
 
-    X_pred = model.predict(X_train)
-    X_pred = X_pred[:, 0, :].reshape(X_train.shape[0], X_train.shape[2])
-    Xtrain = X_train[:, 0, :].reshape(X_train.shape[0], X_train.shape[2])
+    yPredTrain = model.predict(X_train)
+    if len(yPredTrain.shape) == 3:
+        yPredTrain = yPredTrain[:, 0, :].reshape(X_train.shape[0], X_train.shape[2])
 
     fig, ax = plt.subplots()
     ax.set_title("Loss distribution")
-    sns.distplot(np.mean(np.abs(X_pred - Xtrain), axis=1), ax=ax)
+    sns.distplot(np.mean(np.abs(yPredTrain - y_train), axis=1), ax=ax)
     plt.show()
 
     yPredTest = model.predict(X_test)
-    yPredTest = yPredTest[:, 0, :].reshape(X_test.shape[0], X_test.shape[2])
+    if len(yPredTest.shape) == 3:
+        yPredTest = yPredTest[:, 0, :].reshape(X_test.shape[0], X_test.shape[2])
+    yPredTest = (yPredTest > 0.5).astype(int)
+    print(metrics.classification_report(y_test, yPredTest, target_names=list(
+        map(lambda s: 'Sensor %s' % s, d.sensor_data.id.unique()))))
 
     fig, ax = plt.subplots()
     ax.set_title("Loss distribution")
