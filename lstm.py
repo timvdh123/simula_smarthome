@@ -6,8 +6,9 @@ from sklearn import metrics
 from sklearn.utils import class_weight
 from tensorflow.keras.callbacks import ModelCheckpoint
 from tensorflow.keras.layers import Dense, LSTM, Dropout
+from tensorflow.keras.regularizers import l1, l2
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.optimizers import Adam, RMSprop
 
 
 def prepare_data_single_output(d, window_size = 70, shift_direction=-1, dt=60, with_time=False,
@@ -65,6 +66,72 @@ def get_model_individual_sensor(timesteps, n_features, lr):
     lstm_regular.compile(loss='binary_crossentropy', optimizer=adam, metrics=['accuracy'])
     lstm_regular.summary()
     return lstm_regular
+
+def get_model_all_sensors(timesteps, n_features, lr):
+    lstm_regular = Sequential()
+    lstm_regular.add(LSTM(15, activation='relu', input_shape=(timesteps, n_features),
+                              return_sequences=True))
+    lstm_regular.add(Dropout(0.3))
+    lstm_regular.add(LSTM(8, activation='relu', return_sequences=False))
+    lstm_regular.add(Dropout(0.3))
+    lstm_regular.add(Dense(10, kernel_initializer='glorot_normal', activation='relu'))
+    lstm_regular.add(Dropout(0.3))
+    lstm_regular.add(Dense(10, kernel_initializer='glorot_normal', activation='relu',
+                           kernel_regularizer=l1(1e-4)))
+    lstm_regular.add(Dropout(0.3))
+    lstm_regular.add(Dense(n_features, activation='sigmoid'))
+    adam = Adam(lr)
+    lstm_regular.compile(loss='binary_crossentropy', optimizer=adam, metrics=['accuracy'])
+    lstm_regular.summary()
+    return lstm_regular
+
+def train_parallel_sensors(d, **kwargs):
+    window_size = kwargs.setdefault('window_size', 60) #Number of steps to look back
+    epochs = kwargs.setdefault('epochs', 20)
+    batch = kwargs.setdefault('batch', 24)
+    lr = kwargs.setdefault('lr', 0.0001)
+    dt = kwargs.setdefault('dt', 600)
+    X, y = prepare_data_single_output(d, **kwargs)
+    X_train = X[:-4*(3600//dt)*24]
+    X_test = X[-4*(3600//dt)*24:]
+    if kwargs.get('with_time', False):
+        y_train = y[:-4 * (3600 // dt) * 24, :-1]
+        y_test = y[-4 * (3600 // dt) * 24:, :-1]
+    else:
+        y_train = y[:-4 * (3600 // dt) * 24, :]
+        y_test = y[-4 * (3600 // dt) * 24:, :]
+    assert not np.any(np.isnan(X))
+    assert not np.any(np.isnan(y))
+    print("Training data shape: %s" % str(X_train.shape))
+    n_features = X.shape[2]  # 59
+    model = get_model_all_sensors(n_features=n_features, timesteps=window_size, lr=lr)
+    cp = ModelCheckpoint(filepath="lstm_autoencoder_classifier_sensor_all_sensors.h5",
+                         verbose=0)
+    lstm_autoencoder_history = model.fit(X_train, y_train,
+                                         epochs=epochs,
+                                         batch_size=batch,
+                                         verbose=2,
+                                         callbacks=[cp],
+                                         ).history
+    plt.plot(lstm_autoencoder_history['loss'], linewidth=2, label='Train')
+    plt.legend(loc='upper right')
+    plt.title('Model loss')
+    plt.ylabel('Loss')
+    plt.xlabel('Epoch')
+    plt.show()
+    yPredTest = model.predict(X_test)
+    if len(yPredTest.shape) == 3:
+        yPredTest = yPredTest[:, 0, :].reshape(X_test.shape[0], X_test.shape[2])
+    yPredTest = (yPredTest > 0.5).astype(int)
+    for index, id in enumerate(d.sensor_data.id.unique()):
+        print(metrics.classification_report(y_test[:,index], yPredTest[:, index]))
+        fig, ax = plt.subplots()
+        ax.plot(y_test[:,index], label='Actual')
+        ax.plot(yPredTest[:, index], label='Predicted')
+        ax.legend()
+        plt.title("Sensor %d" % id)
+        plt.show()
+
 
 def train_every_sensor(d, **kwargs):
     window_size = kwargs.setdefault('window_size', 60) #Number of steps to look back
