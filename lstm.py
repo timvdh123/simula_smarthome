@@ -105,12 +105,12 @@ def get_model_all_sensors(timesteps, n_features, lr):
 def get_model_future_predictions_sensors(timesteps, future_timesteps, n_features, lr):
     model = Sequential()
     # encoder
-    model.add(LSTM(13, activation='relu', input_shape=(timesteps, n_features),
+    model.add(LSTM(15, activation='relu', input_shape=(timesteps, n_features),
                    return_sequences=False))
     # model.add(LSTM(8, activation='relu', return_sequences=False))
     model.add(RepeatVector(future_timesteps))
     #decoder
-    model.add(LSTM(13, activation='relu', return_sequences=True))
+    model.add(LSTM(15, activation='relu', return_sequences=True))
     # model.add(Dense(10, kernel_initializer='glorot_normal', activation='relu'))
     model.add(TimeDistributed(Dense(1, activation='sigmoid')))
     adam = Adam(lr)
@@ -125,7 +125,7 @@ def train_future_timesteps(d, **kwargs):
     # back
     epochs = kwargs.setdefault('epochs', 20)
     batch = kwargs.setdefault('batch', 24)
-    lr = kwargs.setdefault('lr', 0.001)
+    lr = kwargs.setdefault('lr', 0.0001)
     dt = kwargs.setdefault('dt', 600)
     X, y = prepare_data_future_steps(d, **kwargs)
     X_train = X[:-2*(3600//dt)*24]
@@ -144,7 +144,10 @@ def train_future_timesteps(d, **kwargs):
         cp = ModelCheckpoint(filepath="lstm_autoencoder_classifier_sensor_future_%d.h5" % id,
                              verbose=0)
         if os.path.exists("lstm_autoencoder_classifier_sensor_future_%d.h5" % id):
-            model.load_weights("lstm_autoencoder_classifier_sensor_future_%d.h5" % id)
+            try:
+                model.load_weights("lstm_autoencoder_classifier_sensor_future_%d.h5" % id)
+            except ValueError as v:
+                print("Could not load model weights")
         print("Sensor %d" % id)
         lstm_autoencoder_history = model.fit(X_train, y_train,
                                              epochs=epochs,
