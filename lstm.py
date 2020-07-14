@@ -6,7 +6,7 @@ import pandas as pd
 import seaborn as sns
 from sklearn import metrics
 from sklearn.utils import class_weight
-from tensorflow.keras.callbacks import ModelCheckpoint
+from tensorflow.keras.callbacks import ModelCheckpoint, LearningRateScheduler
 from tensorflow.keras.layers import Dense, LSTM, Dropout, RepeatVector, TimeDistributed
 from tensorflow.keras.regularizers import l1, l2
 from tensorflow.keras.models import Sequential
@@ -105,13 +105,13 @@ def get_model_all_sensors(timesteps, n_features, lr):
 def get_model_future_predictions_sensors(timesteps, future_timesteps, n_features, lr):
     model = Sequential()
     # encoder
-    model.add(LSTM(15, activation='relu', input_shape=(timesteps, n_features),
-                   return_sequences=True))
-    model.add(LSTM(8, activation='relu', return_sequences=False))
+    model.add(LSTM(13, activation='relu', input_shape=(timesteps, n_features),
+                   return_sequences=False))
+    # model.add(LSTM(8, activation='relu', return_sequences=False))
     model.add(RepeatVector(future_timesteps))
     #decoder
-    model.add(LSTM(15, activation='relu', return_sequences=True))
-    model.add(Dense(10, kernel_initializer='glorot_normal', activation='relu'))
+    model.add(LSTM(13, activation='relu', return_sequences=True))
+    # model.add(Dense(10, kernel_initializer='glorot_normal', activation='relu'))
     model.add(TimeDistributed(Dense(1, activation='sigmoid')))
     adam = Adam(lr)
     model.compile(loss='binary_crossentropy', optimizer=adam, metrics=['accuracy'])
@@ -125,7 +125,7 @@ def train_future_timesteps(d, **kwargs):
     # back
     epochs = kwargs.setdefault('epochs', 20)
     batch = kwargs.setdefault('batch', 24)
-    lr = kwargs.setdefault('lr', 0.0001)
+    lr = kwargs.setdefault('lr', 0.001)
     dt = kwargs.setdefault('dt', 600)
     X, y = prepare_data_future_steps(d, **kwargs)
     X_train = X[:-2*(3600//dt)*24]
