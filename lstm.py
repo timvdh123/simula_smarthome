@@ -16,6 +16,7 @@ from tensorflow.keras.utils import plot_model
 def prepare_data_future_steps(d, window_size = 70, dt=60,
                                      with_time=False, future_steps=20, **kwargs):
     series_sensor_data = d.sensor_values_reshape(dt)
+    series_sensor_data = series_sensor_data[[24, 5, 6]]
     if with_time:
         series_sensor_data['hour'] = series_sensor_data.index.hour
     data = np.zeros((len(series_sensor_data), window_size, series_sensor_data.shape[1]))
