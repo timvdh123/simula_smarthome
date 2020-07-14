@@ -1,3 +1,5 @@
+import os
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -141,6 +143,8 @@ def train_future_timesteps(d, **kwargs):
         y_test = y_test.reshape((y_test.shape[0], y_test.shape[1], 1))
         cp = ModelCheckpoint(filepath="lstm_autoencoder_classifier_sensor_future_%d.h5" % id,
                              verbose=0)
+        if os.path.exists("lstm_autoencoder_classifier_sensor_future_%d.h5" % id):
+            model.load_weights("lstm_autoencoder_classifier_sensor_future_%d.h5" % id)
         print("Sensor %d" % id)
         lstm_autoencoder_history = model.fit(X_train, y_train,
                                              epochs=epochs,
@@ -162,11 +166,13 @@ def train_future_timesteps(d, **kwargs):
         y_test = y_test.reshape(y_test.shape[0], y_test.shape[1])
         print(yPredTest.shape)
         # print(metrics.classification_report(y_test, yPredTest))
-        fig, ax = plt.subplots()
-        ax.plot(y_test[0,:], label='Actual')
-        ax.plot(yPredTest[0,:], label='Predicted')
-        plt.title("Sensor %d" % id)
-        plt.show()
+        for i in range(y_test.shape[0]):
+            fig, ax = plt.subplots()
+            ax.plot(y_test[i,:], label='Actual')
+            ax.plot(yPredTest[i,:], label='Predicted')
+            plt.legend()
+            plt.title("Sensor %d" % id)
+            plt.show()
 
 
 def train_parallel_sensors(d, **kwargs):
