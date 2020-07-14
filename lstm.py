@@ -5,10 +5,24 @@ import seaborn as sns
 from sklearn import metrics
 from sklearn.utils import class_weight
 from tensorflow.keras.callbacks import ModelCheckpoint
-from tensorflow.keras.layers import Dense, LSTM, Dropout
+from tensorflow.keras.layers import Dense, LSTM, Dropout, RepeatVector, TimeDistributed
 from tensorflow.keras.regularizers import l1, l2
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.optimizers import Adam, RMSprop
+from tensorflow.keras.utils import plot_model
+
+def prepare_data_future_steps(d, window_size = 70, dt=60,
+                                     with_time=False, future_steps=20, **kwargs):
+    series_sensor_data = d.sensor_values_reshape(dt)
+    if with_time:
+        series_sensor_data['hour'] = series_sensor_data.index.hour
+    data = np.zeros((len(series_sensor_data), window_size, series_sensor_data.shape[1]))
+    output = np.zeros((len(series_sensor_data), future_steps, series_sensor_data.shape[1]))
+    for i in range(future_steps):
+        output[:, i, :] = series_sensor_data.shift(i) # Future steps
+    for i in range(window_size):
+        data[:, i, :] = series_sensor_data.shift(-1*i)
+    return data[future_steps:-window_size, :, :], output[future_steps:-window_size, :]
 
 
 def prepare_data_single_output(d, window_size = 70, shift_direction=-1, dt=60, with_time=False,
@@ -83,7 +97,75 @@ def get_model_all_sensors(timesteps, n_features, lr):
     adam = Adam(lr)
     lstm_regular.compile(loss='binary_crossentropy', optimizer=adam, metrics=['accuracy'])
     lstm_regular.summary()
+    plot_model(lstm_regular, 'model.png', show_shapes=True)
     return lstm_regular
+
+def get_model_future_predictions_sensors(timesteps, future_timesteps, n_features, lr):
+    model = Sequential()
+    # encoder
+    model.add(LSTM(15, activation='relu', input_shape=(timesteps, n_features), return_sequences=False))
+    # model.add(LSTM(8, activation='relu', return_sequences=False))
+    model.add(RepeatVector(future_timesteps))
+    #decoder
+    model.add(LSTM(15, activation='relu', return_sequences=True))
+    model.add(TimeDistributed(Dense(1, activation='sigmoid')))
+    adam = Adam(lr)
+    model.compile(loss='binary_crossentropy', optimizer=adam, metrics=['accuracy'])
+    model.summary()
+    plot_model(model, 'model.png', show_shapes=True)
+    return model
+
+def train_future_timesteps(d, **kwargs):
+    window_size = kwargs.setdefault('window_size', 60) #Number of steps to look back
+    future_steps = kwargs.setdefault('future_steps', int(window_size*0.2)) #Number of steps to look
+    # back
+    epochs = kwargs.setdefault('epochs', 20)
+    batch = kwargs.setdefault('batch', 24)
+    lr = kwargs.setdefault('lr', 0.0001)
+    dt = kwargs.setdefault('dt', 600)
+    X, y = prepare_data_future_steps(d, **kwargs)
+    X_train = X[:-2*(3600//dt)*24]
+    X_test = X[-2*(3600//dt)*24:]
+    n_features = X.shape[2]  # 59
+    for index, id in enumerate(d.sensor_data.id.unique()):
+        model = get_model_future_predictions_sensors(n_features=n_features,
+                                                     timesteps=window_size, lr=lr,
+                                                     future_timesteps=future_steps)
+        y_train = y[:-2 * (3600 // dt) * 24, :, index]
+        y_test = y[-2 * (3600 // dt) * 24:, :, index]
+        print("Training data shape %s" % str(X_train.shape))
+        print("Training data output shape %s" % str(y_train.shape))
+        y_train = y_train.reshape((y_train.shape[0], y_train.shape[1], 1))
+        y_test = y_test.reshape((y_test.shape[0], y_test.shape[1], 1))
+        cp = ModelCheckpoint(filepath="lstm_autoencoder_classifier_sensor_future_%d.h5" % id,
+                             verbose=0)
+        print("Sensor %d" % id)
+        lstm_autoencoder_history = model.fit(X_train, y_train,
+                                             epochs=epochs,
+                                             batch_size=batch,
+                                             verbose=2,
+                                             callbacks=[cp],
+                                             ).history
+        plt.plot(lstm_autoencoder_history['loss'], linewidth=2, label='Train')
+        plt.legend(loc='upper right')
+        plt.title('Model loss')
+        plt.ylabel('Loss')
+        plt.xlabel('Epoch')
+        plt.show()
+        yPredTest = model.predict(X_test)
+        yPredTest = (yPredTest > 0.5).astype(int)
+
+        # Remove last dimension
+        yPredTest = yPredTest.reshape(yPredTest.shape[0], yPredTest.shape[1])
+        y_test = y_test.reshape(y_test.shape[0], y_test.shape[1])
+        print(yPredTest.shape)
+        # print(metrics.classification_report(y_test, yPredTest))
+        fig, ax = plt.subplots()
+        ax.plot(y_test[0,:], label='Actual')
+        ax.plot(yPredTest[0,:], label='Predicted')
+        plt.title("Sensor %d" % id)
+        plt.show()
+
 
 def train_parallel_sensors(d, **kwargs):
     window_size = kwargs.setdefault('window_size', 60) #Number of steps to look back
