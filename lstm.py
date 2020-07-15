@@ -49,8 +49,12 @@ def prepare_data_future_steps(d, window_size = 70, dt=60,
     series_sensor_data = series_sensor_data[[24]]
     if with_time:
         seconds_in_day = 24 * 60 * 60
-        series_sensor_data['sin_time'] = np.sin(2 * np.pi * series_sensor_data.index.seconds / seconds_in_day)
-        series_sensor_data['cos_time'] = np.cos(2 * np.pi * series_sensor_data.index.seconds / seconds_in_day)
+        seconds_past_midnight = \
+            series_sensor_data.index.hour * 3600 + \
+        series_sensor_data.index.minute *60 + \
+        series_sensor_data.index.second
+        series_sensor_data['sin_time'] = np.sin(2 * np.pi * seconds_past_midnight / seconds_in_day)
+        series_sensor_data['cos_time'] = np.cos(2 * np.pi * seconds_past_midnight / seconds_in_day)
     data = np.zeros((len(series_sensor_data), window_size, series_sensor_data.shape[1]))
     output = np.zeros((len(series_sensor_data), future_steps, series_sensor_data.shape[1]))
     for i in range(future_steps):
