@@ -12,9 +12,19 @@ from tensorflow.keras.regularizers import l1, l2
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.optimizers import Adam, RMSprop, SGD
 from tensorflow.keras.utils import plot_model
-from tensorflow.keras.losses import BinaryCrossentropy
-from tensorflow.keras.callbacks import Callback
+from tensorflow.keras.callbacks import Callback, EarlyStopping
 
+
+class IsNanEarlyStopper(EarlyStopping):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def on_epoch_end(self, epoch, logs=None):
+        current = self.get_monitor_value(logs)
+        if current is None:
+          return
+        if np.isnan(current) or current > 100:
+            self.model.stop_training = True
 
 class NBatchLogger(Callback):
     """
@@ -171,6 +181,47 @@ def get_model_future_predictions_stack_vector(timesteps, future_timesteps, n_fea
     return model
 
 
+def find_lr_upper_bound(d, **kwargs):
+    max_iterations = 30
+    lb = 1e-5
+    ub = 1e-3
+    for _ in range(max_iterations):
+        lr = 10**((np.log10(lb) + np.log10(ub))/2)
+        print("\n\n Trying learning rate %6.4e\n\n" % lr)
+        window_size = kwargs.setdefault('window_size', 60)  # Number of steps to look back
+        future_steps = kwargs.setdefault('future_steps',
+                                         int(window_size * 0.2))  # Number of steps to look
+        # back
+        epochs = kwargs.setdefault('epochs', 20)
+        batch = kwargs.setdefault('batch', 256)
+        dt = kwargs.setdefault('dt', 600)
+        X, y = prepare_data_future_steps(d, **kwargs)
+        X = X.astype(int)
+        y = y.astype(int)
+        X_train = X[:-2 * (3600 // dt) * 24]
+        n_features = X.shape[2]  # 59
+        model = get_model_future_predictions_stack_vector(n_features=n_features,
+                                                     timesteps=window_size, lr=lr,
+                                                     future_timesteps=future_steps)
+        y_train = y[:-2 * (3600 // dt) * 24, :, 0]
+        print("Training data shape %s" % str(X_train.shape))
+        print("Training data output shape %s" % str(y_train.shape))
+        print("Sensor %d" % d.sensor_data.id.unique()[0])
+        out_batch = NBatchLogger(display=1)
+        nan_stopper = IsNanEarlyStopper(monitor='loss')
+        lstm_autoencoder_history = model.fit(X_train, y_train,
+                                             epochs=epochs,
+                                             batch_size=batch,
+                                             verbose=4,
+                                             callbacks=[nan_stopper, out_batch],
+                                             shuffle=True,
+                                             ).history
+        if not np.isnan(lstm_autoencoder_history['loss'][-1]):
+            print("\n\n\n\n Found upper bound: %6.4e" % lr)
+            lb = lr
+        else:
+            print("nan value encountered, continuing")
+            ub = lr
 
 def train_future_timesteps(d, **kwargs):
     window_size = kwargs.setdefault('window_size', 60) #Number of steps to look back
@@ -183,14 +234,16 @@ def train_future_timesteps(d, **kwargs):
     X, y = prepare_data_future_steps(d, **kwargs)
     X = X.astype(int)
     y = y.astype(int)
-    X_train = X[:-2*(3600//dt)*24]
+    X_train = X[:-3*(3600//dt)*24]
+    X_val = X[-2*(3600//dt)*24:-2*(3600//dt)*24]
     X_test = X[-2*(3600//dt)*24:]
     n_features = X.shape[2]  # 59
     for index, id in enumerate(d.sensor_data.id.unique()):
         model = get_model_future_predictions_stack_vector(n_features=n_features,
                                                      timesteps=window_size, lr=lr,
                                                      future_timesteps=future_steps)
-        y_train = y[:-2 * (3600 // dt) * 24, :, index]
+        y_train = y[:-3 * (3600 // dt) * 24, :, index]
+        y_val = y[-3 * (3600 // dt) * 24 : -2*(3600 // dt), :, index]
         y_test = y[-2 * (3600 // dt) * 24:, :, index]
         print("Training data shape %s" % str(X_train.shape))
         print("Training data output shape %s" % str(y_train.shape))
@@ -199,6 +252,7 @@ def train_future_timesteps(d, **kwargs):
         # y_train = y_train.reshape((y_train.shape[0], y_train.shape[1], 1))
         # y_test = y_test.reshape((y_test.shape[0], y_test.shape[1], 1))
         cp = ModelCheckpoint(filepath="lstm_autoencoder_classifier_sensor_future_%d.h5" % id,
+                             save_best_only=True,
                              verbose=0)
         if os.path.exists("lstm_autoencoder_classifier_sensor_future_%d.h5" % id):
             try:
@@ -207,13 +261,14 @@ def train_future_timesteps(d, **kwargs):
                 print("Could not load model weights")
         print("Sensor %d" % id)
         out_batch = NBatchLogger(display=1)
-
+        early_stopper = IsNanEarlyStopper(monitor='loss')
         lstm_autoencoder_history = model.fit(X_train, y_train,
                                              epochs=epochs,
                                              batch_size=batch,
                                              verbose=4,
-                                             callbacks=[cp, out_batch],
-                                             shuffle=False,
+                                             validation_data=(X_val, y_val),
+                                             callbacks=[cp, out_batch, early_stopper],
+                                             shuffle=True,
                                              ).history
         plt.plot(lstm_autoencoder_history['loss'], linewidth=2, label='Train')
         plt.legend(loc='upper right')
