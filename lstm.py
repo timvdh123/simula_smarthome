@@ -26,6 +26,11 @@ class IsNanEarlyStopper(EarlyStopping):
         if np.isnan(current):
             self.model.stop_training = True
 
+    def on_batch_end(self, batch, logs={}):
+        current = self.get_monitor_value(logs)
+        if np.isnan(current):
+            self.model.stop_training = True
+
 class NBatchLogger(Callback):
     """
     A Logger that log average performance per `display` steps.
@@ -76,7 +81,7 @@ def prepare_data_future_steps(d, window_size = 70, dt=60,
         #0 -> shift(window_size)
         #1 -> shift(window_size-1)
         data[:, i, :] = series_sensor_data.shift(window_size-i)
-    return data[future_steps:-window_size, :, :], output[future_steps:-window_size, :]
+    return data[window_size:-future_steps, :, :], output[window_size:-future_steps, :]
 
 
 def prepare_data_single_output(d, window_size = 70, shift_direction=-1, dt=60, with_time=False,
@@ -174,12 +179,11 @@ def get_model_future_predictions_sensors(timesteps, future_timesteps, n_features
 def get_model_future_predictions_stack_vector(timesteps, future_timesteps, n_features, lr):
     model = Sequential()
     # encoder
-    model.add(LSTM(5, activation='tanh', input_shape=(timesteps, n_features),
+    model.add(LSTM(10, activation='tanh', input_shape=(timesteps, n_features),
                    return_sequences=False))
-    model.add(Dense(5, kernel_initializer='glorot_uniform', activation='tanh'))
     model.add(Dense(future_timesteps, activation='sigmoid'))
     adam = Adam(lr)
-    model.compile(loss='mse', optimizer=adam, metrics=['accuracy'])
+    model.compile(loss='binary_crossentropy', optimizer=adam, metrics=['accuracy'])
     model.summary()
     plot_model(model, 'model.png', show_shapes=True)
     return model
@@ -236,8 +240,6 @@ def train_future_timesteps(d, **kwargs):
     lr = kwargs.setdefault('lr', 1e-2)
     dt = kwargs.setdefault('dt', 600)
     X, y = prepare_data_future_steps(d, **kwargs)
-    X = X.astype(int)
-    y = y.astype(int)
     X_train = X[:-3*(3600//dt)*24, :, :]
     X_val = X[-3*(3600//dt)*24:-2*(3600//dt)*24, :, :]
     X_test = X[-2*(3600//dt)*24:,  :, :]
@@ -281,6 +283,7 @@ def train_future_timesteps(d, **kwargs):
         plt.xlabel('Epoch')
         plt.show()
         yPredTest = model.predict(X_test)
+        yPredTest = (yPredTest > 0.5).astype(int)
 
         # Remove last dimension
         yPredTest = yPredTest.reshape(yPredTest.shape[0], yPredTest.shape[1])
