@@ -16,7 +16,7 @@ from tensorflow.keras.utils import plot_model
 def prepare_data_future_steps(d, window_size = 70, dt=60,
                                      with_time=False, future_steps=20, **kwargs):
     series_sensor_data = d.sensor_values_reshape(dt)
-    series_sensor_data = series_sensor_data[[24, 5, 6]]
+    series_sensor_data = series_sensor_data[[24]]
     if with_time:
         series_sensor_data['hour'] = series_sensor_data.index.hour
     data = np.zeros((len(series_sensor_data), window_size, series_sensor_data.shape[1]))
@@ -123,10 +123,10 @@ def get_model_future_predictions_sensors(timesteps, future_timesteps, n_features
 def get_model_future_predictions_stack_vector(timesteps, future_timesteps, n_features, lr):
     model = Sequential()
     # encoder
-    model.add(LSTM(12, activation='relu', input_shape=(timesteps, n_features),
-                   return_sequences=True))
-    model.add(LSTM(12, activation='relu', return_sequences=False))
-    model.add(Dense(12, kernel_initializer='glorot_normal', activation='relu'))
+    model.add(LSTM(10, activation='relu', input_shape=(timesteps, n_features),
+                   return_sequences=False))
+    # model.add(LSTM(20, activation='relu', return_sequences=False))
+    # model.add(Dense(20, kernel_initializer='glorot_normal', activation='relu'))
     model.add(Dense(future_timesteps, activation='sigmoid'))
     adam = Adam(lr)
     model.compile(loss='binary_crossentropy', optimizer=adam, metrics=['accuracy'])
@@ -141,7 +141,7 @@ def train_future_timesteps(d, **kwargs):
     future_steps = kwargs.setdefault('future_steps', int(window_size*0.2)) #Number of steps to look
     # back
     epochs = kwargs.setdefault('epochs', 20)
-    batch = kwargs.setdefault('batch', 24)
+    batch = kwargs.setdefault('batch', 5)
     lr = kwargs.setdefault('lr', 0.0001)
     dt = kwargs.setdefault('dt', 600)
     X, y = prepare_data_future_steps(d, **kwargs)
