@@ -12,7 +12,7 @@ from tensorflow.keras.regularizers import l1, l2
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.optimizers import Adam, RMSprop, SGD
 from tensorflow.keras.utils import plot_model
-from tensorflow.keras.callbacks import Callback, EarlyStopping
+from tensorflow.keras.callbacks import Callback, EarlyStopping, BaseLogger, ProgbarLogger
 
 
 class IsNanEarlyStopper(EarlyStopping):
@@ -53,6 +53,9 @@ class NBatchLogger(Callback):
                                               metrics_log))
                 self.metric_cache.clear()
 
+    # def on_epoch_end(self, epoch, logs=None):
+    #     self.base_logger.on_epoch_end(epoch, logs)
+
 def prepare_data_future_steps(d, window_size = 70, dt=60,
                                      with_time=False, future_steps=20, **kwargs):
     series_sensor_data = d.sensor_values_reshape(dt)
@@ -68,9 +71,11 @@ def prepare_data_future_steps(d, window_size = 70, dt=60,
     data = np.zeros((len(series_sensor_data), window_size, series_sensor_data.shape[1]))
     output = np.zeros((len(series_sensor_data), future_steps, series_sensor_data.shape[1]))
     for i in range(future_steps):
-        output[:, i, :] = series_sensor_data.shift(i) # Future steps
+        output[:, i, :] = series_sensor_data.shift(-1*i) # Future steps
     for i in range(window_size):
-        data[:, i, :] = series_sensor_data.shift(-1*i)
+        #0 -> shift(window_size)
+        #1 -> shift(window_size-1)
+        data[:, i, :] = series_sensor_data.shift(window_size-i)
     return data[future_steps:-window_size, :, :], output[future_steps:-window_size, :]
 
 
@@ -175,7 +180,7 @@ def get_model_future_predictions_stack_vector(timesteps, future_timesteps, n_fea
     # model.add(Dense(20, kernel_initializer='glorot_normal', activation='relu'))
     model.add(Dense(future_timesteps, activation='sigmoid'))
     adam = Adam(lr, clipnorm=1)
-    model.compile(loss='binary_crossentropy', optimizer=adam, metrics=['accuracy'])
+    model.compile(loss='mse', optimizer=adam, metrics=['accuracy'])
     model.summary()
     plot_model(model, 'model.png', show_shapes=True)
     return model
@@ -228,22 +233,22 @@ def train_future_timesteps(d, **kwargs):
     future_steps = kwargs.setdefault('future_steps', int(window_size*0.2)) #Number of steps to look
     # back
     epochs = kwargs.setdefault('epochs', 20)
-    batch = kwargs.setdefault('batch', 128)
-    lr = kwargs.setdefault('lr', 1e-5)
+    batch = kwargs.setdefault('batch', 32)
+    lr = kwargs.setdefault('lr', 5e-5)
     dt = kwargs.setdefault('dt', 600)
     X, y = prepare_data_future_steps(d, **kwargs)
     X = X.astype(int)
     y = y.astype(int)
-    X_train = X[:-3*(3600//dt)*24]
-    X_val = X[-2*(3600//dt)*24:-2*(3600//dt)*24]
-    X_test = X[-2*(3600//dt)*24:]
+    X_train = X[:-3*(3600//dt)*24, :, :]
+    X_val = X[-3*(3600//dt)*24:-2*(3600//dt)*24, :, :]
+    X_test = X[-2*(3600//dt)*24:,  :, :]
     n_features = X.shape[2]  # 59
     for index, id in enumerate(d.sensor_data.id.unique()):
         model = get_model_future_predictions_stack_vector(n_features=n_features,
                                                      timesteps=window_size, lr=lr,
                                                      future_timesteps=future_steps)
         y_train = y[:-3 * (3600 // dt) * 24, :, index]
-        y_val = y[-3 * (3600 // dt) * 24 : -2*(3600 // dt), :, index]
+        y_val = y[-3 * (3600 // dt) * 24 : -2*(3600 // dt) * 24, :, index]
         y_test = y[-2 * (3600 // dt) * 24:, :, index]
         print("Training data shape %s" % str(X_train.shape))
         print("Training data output shape %s" % str(y_train.shape))
@@ -265,9 +270,9 @@ def train_future_timesteps(d, **kwargs):
         lstm_autoencoder_history = model.fit(X_train, y_train,
                                              epochs=epochs,
                                              batch_size=batch,
-                                             verbose=4,
+                                             verbose=1,
                                              validation_data=(X_val, y_val),
-                                             callbacks=[cp, out_batch, early_stopper],
+                                             callbacks=[early_stopper, cp, out_batch],
                                              shuffle=True,
                                              ).history
         plt.plot(lstm_autoencoder_history['loss'], linewidth=2, label='Train')
