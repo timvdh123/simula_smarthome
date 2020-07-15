@@ -23,7 +23,7 @@ class IsNanEarlyStopper(EarlyStopping):
         current = self.get_monitor_value(logs)
         if current is None:
           return
-        if np.isnan(current) or current > 100:
+        if np.isnan(current):
             self.model.stop_training = True
 
 class NBatchLogger(Callback):
@@ -59,7 +59,7 @@ class NBatchLogger(Callback):
 def prepare_data_future_steps(d, window_size = 70, dt=60,
                                      with_time=False, future_steps=20, **kwargs):
     series_sensor_data = d.sensor_values_reshape(dt)
-    series_sensor_data = series_sensor_data[[24]]
+    series_sensor_data = series_sensor_data[[24, 5, 6]]
     if with_time:
         seconds_in_day = 24 * 60 * 60
         seconds_past_midnight = \
@@ -174,12 +174,11 @@ def get_model_future_predictions_sensors(timesteps, future_timesteps, n_features
 def get_model_future_predictions_stack_vector(timesteps, future_timesteps, n_features, lr):
     model = Sequential()
     # encoder
-    model.add(LSTM(10, activation='relu', input_shape=(timesteps, n_features),
+    model.add(LSTM(5, activation='tanh', input_shape=(timesteps, n_features),
                    return_sequences=False))
-    # model.add(LSTM(20, activation='relu', return_sequences=False))
-    # model.add(Dense(20, kernel_initializer='glorot_normal', activation='relu'))
+    model.add(Dense(5, kernel_initializer='glorot_uniform', activation='tanh'))
     model.add(Dense(future_timesteps, activation='sigmoid'))
-    adam = Adam(lr, clipnorm=1)
+    adam = Adam(lr)
     model.compile(loss='mse', optimizer=adam, metrics=['accuracy'])
     model.summary()
     plot_model(model, 'model.png', show_shapes=True)
@@ -233,8 +232,8 @@ def train_future_timesteps(d, **kwargs):
     future_steps = kwargs.setdefault('future_steps', int(window_size*0.2)) #Number of steps to look
     # back
     epochs = kwargs.setdefault('epochs', 20)
-    batch = kwargs.setdefault('batch', 32)
-    lr = kwargs.setdefault('lr', 5e-5)
+    batch = kwargs.setdefault('batch', 128)
+    lr = kwargs.setdefault('lr', 1e-2)
     dt = kwargs.setdefault('dt', 600)
     X, y = prepare_data_future_steps(d, **kwargs)
     X = X.astype(int)
@@ -282,7 +281,6 @@ def train_future_timesteps(d, **kwargs):
         plt.xlabel('Epoch')
         plt.show()
         yPredTest = model.predict(X_test)
-        yPredTest = (yPredTest > 0.5).astype(int)
 
         # Remove last dimension
         yPredTest = yPredTest.reshape(yPredTest.shape[0], yPredTest.shape[1])
