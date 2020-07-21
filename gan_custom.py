@@ -118,6 +118,7 @@ def create_gan(discriminator, generator, window_size, future_size):
     discriminator.trainable = False
     gan_input = Input(shape=(window_size, 3))
     x = generator(gan_input)
+    # x = (x > 0.5)
     # x = tf.round(x)
     x = layers.Reshape((future_size, 1))(x)
     gan_output = discriminator(x)
@@ -154,17 +155,17 @@ def generate_noise(batch_size, window_size):
 def predict_validation_set(generator, X_val, y_val):
     y_val_predicted = generator.predict(X_val)
     y_val_predicted = (y_val_predicted > 0.5)
-    for i in range(0, y_val.shape[0], 20):
-        distance, path = fastdtw(y_val[i, :], y_val_predicted[i, :])
-        fig, ax = plt.subplots()
-        ax.plot(y_val[i, :], label='Actual')
-        ax.plot(y_val_predicted[i, :], label='Predicted')
-        plt.legend()
-        plt.title("Accuracy = %3.2f\n DTW dist = %3.2f" % (
-            tf.metrics.binary_accuracy(y_val[i, :], y_val_predicted[i, :]),
-            distance
-        ))
-        plt.show()
+    i = np.random.randint(0, y_val.shape[0])
+    distance, path = fastdtw(y_val[i, :], y_val_predicted[i, :])
+    fig, ax = plt.subplots()
+    ax.plot(y_val[i, :], label='Actual')
+    ax.plot(y_val_predicted[i, :], label='Predicted')
+    plt.legend()
+    plt.title("Accuracy = %3.2f\n DTW dist = %3.2f" % (
+        tf.metrics.binary_accuracy(y_val[i, :], y_val_predicted[i, :]),
+        distance
+    ))
+    plt.show()
 
 
 def training(epochs=1, batch_size=32):
@@ -235,7 +236,5 @@ def training(epochs=1, batch_size=32):
             # training  the GAN by alternating the training of the Discriminator
             # and training the chained GAN model with Discriminator’s weights freezed.
             gan.train_on_batch(noise, y_gen)
-
-
 if __name__ == '__main__':
     training(20, 32)
