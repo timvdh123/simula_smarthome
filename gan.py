@@ -128,9 +128,9 @@ if __name__ == '__main__':
 
         return x_x, X_train, scaler
 
-    future_timesteps = 24
+    future_timesteps = 144
     window_size = 144
-    dt = 3600
+    dt = 600
 
     # Loading the data
     bathroom1 = Dataset.parse('dataset/', 'bathroom1')
@@ -661,8 +661,8 @@ if __name__ == '__main__':
         z1 = Input(shape=z_shape, name="z1_input")
         latent_codes = (labels, z0, z1, feature0)
         gen0, gen1 = build_generator(latent_codes, feature0_dim)
-        gen0.load_weights(model_name + "-gen0.h5")
-        gen1.load_weights(model_name + "-gen1.h5")
+        # gen0.load_weights(model_name + "-gen0.h5")
+        # gen1.load_weights(model_name + "-gen1.h5")
         # gen0: classes and noise (labels + z0) to feature0
         gen0.summary()  # (latent features generator)
         # gen1: feature0 + z0 to feature1
