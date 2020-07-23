@@ -1,13 +1,12 @@
 from kerastuner import HyperModel, RandomSearch
 from tensorflow import keras
-from tensorflow.keras import layers
-from tensorflow.keras import optimizers
+from tensorflow.keras import layers, optimizers
 
 from discretize import Dataset
 from lstm import prepare_data_future_steps, IsNanEarlyStopper
+import numpy as np
 
-
-class FuturePredictionModel(HyperModel):
+class FuturePredictionModelHyperparameters(HyperModel):
     def __init__(self, window_size, num_features, future_steps):
         super().__init__()
         self.window_size = window_size
@@ -57,7 +56,7 @@ def search(dt=600,
 
 
     tuner = RandomSearch(
-        FuturePredictionModel(window_size=window_size, num_features=X.shape[2], future_steps=future_steps),
+        FuturePredictionModelHyperparameters(window_size=window_size, num_features=X.shape[2], future_steps=future_steps),
         objective='val_loss',
         max_trials=max_trials,
         directory='test_dir')
@@ -75,5 +74,20 @@ def search(dt=600,
 
     tuner.results_summary()
 
+def load_results():
+    tuner = RandomSearch(
+        FuturePredictionModelHyperparameters(window_size=720, num_features=5,
+                                             future_steps=144),
+        objective='val_loss',
+        max_trials=100,
+        directory='test_dir')
+    tuner.reload()
+    best = tuner.oracle.get_best_trials(20)
+    best.sort(key = lambda trial: trial.metrics.get_best_value('val_accuracy')
+    if not np.isnan(trial.metrics.get_best_value('val_loss')) else np.nan, reverse=True)
+
+    best_accuracy = list(map(lambda trial: trial.metrics.get_best_value('val_accuracy')
+    if not np.isnan(trial.metrics.get_best_value('val_loss')) else np.nan, best))
+    print(best_accuracy)
 if __name__ == '__main__':
-    search()
+    load_results()

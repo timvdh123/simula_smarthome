@@ -11,8 +11,7 @@ from hmmlearn import hmm
 import hmmlearn.utils
 import hmmlearn.stats
 
-from lstm import train, train_every_sensor, train_parallel_sensors, train_future_timesteps, \
-    find_lr_upper_bound
+from lstm import train_future_timesteps
 from similarity import LOF, isolation_forest, isolation_forest_all
 
 
@@ -187,14 +186,14 @@ class Dataset:
         return pd.DataFrame(table, columns=sensor_label_indices,
                             index=time)
 
-    def activity_reshape(self):
+    def activity_reshape(self, dt=60):
         """Discretizes the activity data into bins. Value is activity_id if a bin overlaps with
         start_time, end_time."""
 
         time = np.arange(
             start=pd.Timestamp(self.sensor_data.start_time.min().date()),
             stop=pd.Timestamp(self.sensor_data.end_time.max().date() + pd.Timedelta(1, 'day')),
-            step=pd.to_timedelta(60, 's')
+            step=pd.to_timedelta(dt, 's')
         ).astype('datetime64[ns]')
 
         table = np.zeros(len(time))
@@ -234,7 +233,8 @@ class Dataset:
         """Prints a summary of the data"""
         for id in self.sensor_data.id.unique():
             data = self.sensor_data.loc[self.sensor_data.id == id]
-            print("\nSensor %s was activated %d times" % (self.lookup_sensor_id(id), len(data)))
+            print("\nSensor[%d] %s was activated %d times" % (id, self.lookup_sensor_id(id),
+                                                              len(data)))
             duration = (data['end_time'] - data['start_time']).astype('timedelta64[s]').astype(int)
             print("Mean activation time: %5.2f +- %3.2e s" % (duration.mean(), duration.std()))
 # %%
@@ -247,12 +247,12 @@ if __name__ == '__main__':
     bathroom1 = Dataset.parse('dataset/', 'bathroom1')
     kitchen1 = Dataset.parse('dataset/', 'kitchen1')
     combined1 = bathroom1.combine(kitchen1)
+    # combined1.sensor_data_summary()
     # train(combined, epochs=10, window_size=40, dt=600, shift_direction=-1, with_time=False)
     # train_parallel_sensors(combined1, epochs=10, window_size=500, dt=300, shift_direction=-1,
     #                 with_time=False)
-    train_future_timesteps(combined1, epochs=50, window_size=360, future_steps=144, dt=600,
-                           shift_direction=-1,
-                    with_time=True, lr=1e-2)
+    train_future_timesteps(combined1, epochs=500, window_size=120, future_steps=360, dt=3600,
+                    with_time=True, lr=4e-3, batch=128)
     # combined.sensor_data_summary()
     # LOF(combined, ['duration'], 2)
     # isolation_forest(combined)
