@@ -251,8 +251,8 @@ if __name__ == '__main__':
     # train(combined, epochs=10, window_size=40, dt=600, shift_direction=-1, with_time=False)
     # train_parallel_sensors(combined1, epochs=10, window_size=500, dt=300, shift_direction=-1,
     #                 with_time=False)
-    train_future_timesteps(combined1, epochs=500, window_size=120, future_steps=360, dt=3600,
-                    with_time=True, lr=4e-3, batch=128)
+    train_future_timesteps(combined1, epochs=500, window_size=240, future_steps=360, dt=3600,
+                    with_time=True, lr=4e-3, batch=128, sensor_id=6)
     # combined.sensor_data_summary()
     # LOF(combined, ['duration'], 2)
     # isolation_forest(combined)

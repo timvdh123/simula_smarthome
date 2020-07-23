@@ -55,9 +55,9 @@ class NBatchLogger(Callback):
                 self.metric_cache.clear()
 
 def prepare_data_future_steps(d, window_size = 70, dt=60,
-                                     with_time=False, future_steps=20, **kwargs):
+                                     with_time=False, future_steps=20, sensor_id=24, **kwargs):
     series_sensor_data = d.sensor_values_reshape(dt)
-    series_sensor_data = series_sensor_data[[24]]
+    series_sensor_data = series_sensor_data[[sensor_id]]
     if with_time:
         seconds_in_day = 24 * 60 * 60
         seconds_past_midnight = \
@@ -98,6 +98,7 @@ def train_future_timesteps(d, **kwargs):
     epochs = kwargs.setdefault('epochs', 20)
     batch = kwargs.setdefault('batch', 128)
     dt = kwargs.setdefault('dt', 600)
+    sensor_id = kwargs.setdefault('sensor_id', 24)
     X, y = prepare_data_future_steps(d, **kwargs)
     (
         X_train, y_train,
@@ -105,9 +106,7 @@ def train_future_timesteps(d, **kwargs):
         X_test, y_test,
     ) = test_train_val_split(X, y, dt, 2, 2)
     n_features = X.shape[2]  # 59
-    for index, id in [(0, 24)]:
-        if id != 24:
-            continue
+    for index, id in [(0, sensor_id)]:
         model = single_sensor_multistep_future(
             n_features=n_features,
             timesteps=window_size,
