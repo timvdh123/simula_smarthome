@@ -131,6 +131,7 @@ def single_sensor_multistep_future_encoder_decoder(
     for _ in range(decoder_hidden_layers):
         model.add(layers.Dense(decoder_hidden_layer_units, activation=decoder_hidden_layer_activation))
     model.add(layers.TimeDistributed(layers.Dense(1, activation=output_activcation)))
+    model.add(layers.Reshape(future_timesteps))
     adam = optimizers.Adam(learning_rate)
     model.compile(loss='binary_crossentropy', optimizer=adam, metrics=['accuracy'])
     model.summary()
