@@ -138,7 +138,10 @@ def evaluate_model(
             'val_accuracy': training_history['val_accuracy'][-1],
         }
     yPredTest = model.predict(X_test)
+    if len(yPredTest.shape) == 3:
+        yPredTest = yPredTest[:, 0, :]
     yPredTestBinary = (yPredTest > 0.5).astype(int)
+    y_test = (y_test > 0.5).astype(int)
     accuracy = metrics.binary_accuracy(y_test, yPredTestBinary)
     conf_matrix = np.array([confusion_matrix(y_test[i], yPredTestBinary[i])
                             for i in range(len(yPredTestBinary))])

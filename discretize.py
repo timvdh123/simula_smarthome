@@ -13,6 +13,7 @@ from hmmlearn import hmm
 import hmmlearn.utils
 import hmmlearn.stats
 
+import gan_custom
 from lstm import train_future_timesteps
 from models import single_sensor_multistep_future_encoder_decoder
 from similarity import LOF, isolation_forest, isolation_forest_all
@@ -289,48 +290,59 @@ if __name__ == '__main__':
     combined1 = bathroom1.combine(kitchen1)
 
     for sensor_id in [6, 9, 24]:
-        # Run encoder-decoder model
-        model = single_sensor_multistep_future_encoder_decoder(timesteps=120,
-                                                               future_timesteps=120,
-                                                               n_features=3,
-                                                               input_n_units=120,
-                                                               encoder_extra_lstm=False,
-                                                               decoder_hidden_layers=0,
-                                                               decoder_lstm_units=120)
 
-        train_future_timesteps(combined1,
-                               model_args=None,
-                               model=model,
-                               model_name='encoder-decoder',
-                               epochs=3000,
-                               window_size=120,
-                               future_steps=120,
-                               dt=3600,
-                               with_time=True,
-                               batch=128,
-                               sensor_id=sensor_id,
-                               )
-        # Run vector output model
-        model_args = {
-            "learning_rate": 1e-3,
-            "hidden_layer_activation": 'tanh',
-            "hidden_layers": 1,
-            "hidden_layer_units": 120,
-            "input_n_units": 120,
-            "second_layer_input": 120
-        }
-
-        train_future_timesteps(combined1,
-                               model_args=model_args,
-                               model_name='lstm_vector_output',
-                               epochs=3000,
-                               window_size=120,
-                               future_steps=120,
-                               dt=3600,
-                               with_time=True,
-                               batch=128,
-                               sensor_id=sensor_id,
-                               load_weights=False)
+        gan_custom.training(combined1, 'GAN (custom)',
+                            epochs=3000,
+                            window_size=120,
+                            future_steps=120,
+                            dt=3600,
+                            with_time=True,
+                            batch=128,
+                            sensor_id=sensor_id,
+                            load_weights=False)
+        #
+        # # Run encoder-decoder model
+        # model = single_sensor_multistep_future_encoder_decoder(timesteps=120,
+        #                                                        future_timesteps=120,
+        #                                                        n_features=3,
+        #                                                        input_n_units=120,
+        #                                                        encoder_extra_lstm=False,
+        #                                                        decoder_hidden_layers=0,
+        #                                                        decoder_lstm_units=120)
+        #
+        # train_future_timesteps(combined1,
+        #                        model_args=None,
+        #                        model=model,
+        #                        model_name='encoder-decoder',
+        #                        epochs=3000,
+        #                        window_size=120,
+        #                        future_steps=120,
+        #                        dt=3600,
+        #                        with_time=True,
+        #                        batch=128,
+        #                        sensor_id=sensor_id,
+        #                        )
+        # # Run vector output model
+        # model_args = {
+        #     "learning_rate": 1e-3,
+        #     "hidden_layer_activation": 'tanh',
+        #     "hidden_layers": 1,
+        #     "hidden_layer_units": 120,
+        #     "input_n_units": 120,
+        #     "second_layer_input": 120
+        # }
+        #
+        # train_future_timesteps(combined1,
+        #                        model_args=model_args,
+        #                        model_name='lstm_vector_output',
+        #                        epochs=3000,
+        #                        window_size=120,
+        #                        future_steps=120,
+        #                        dt=3600,
+        #                        with_time=True,
+        #                        batch=128,
+        #                        sensor_id=sensor_id,
+        #                        load_weights=False)
 
     combine_model_results()
 

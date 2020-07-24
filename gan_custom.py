@@ -10,31 +10,38 @@ import numpy as np
 import matplotlib.pyplot as plt
 import tensorflow as tf
 
+from lstm import save_model, evaluate_model, prepare_data_future_steps
+
 
 def create_generator(
         timesteps,
         future_timesteps,
         n_features,
-        input_activation='relu',
-        input_n_units=144,
+        input_activation='tanh',
+        input_n_units=10,
         hidden_layers=1,
         hidden_layer_activation='relu',
-        hidden_layer_units=144,
+        hidden_layer_units=5,
         output_activcation='sigmoid',
-        learning_rate=0.001
+        learning_rate=0.00476,
+        second_layer_input=None
 ):
     model = models.Sequential()
-    model.add(layers.GRU(input_n_units, activation=input_activation,
-                         input_shape=(timesteps, n_features),
-                         return_sequences=True))
-    model.add(layers.GRU(input_n_units, activation=input_activation,
-                         return_sequences=False))
+    model.add(layers.GRU(input_n_units, activation=input_activation, input_shape=(timesteps,
+                                                                                n_features),
+                   return_sequences=True))
+    if second_layer_input is None:
+        second_layer_input = input_n_units//2
+    model.add(layers.GRU(input_n_units//2, activation=input_activation,
+                   return_sequences=False))
 
-    # for _ in range(hidden_layers):
-    #     model.add(layers.Dense(hidden_layer_units, activation=hidden_layer_activation))
+    for _ in range(hidden_layers):
+        model.add(layers.Dense(hidden_layer_units, activation=hidden_layer_activation))
     model.add(layers.Dense(future_timesteps, activation=output_activcation))
     adam = optimizers.Adam(learning_rate)
-    model.compile(loss='mse', optimizer=adam, metrics=['accuracy'])
+    bc = losses.BinaryCrossentropy()
+    # loss = sequence_matching_loss(bc)
+    model.compile(loss='binary_crossentropy', optimizer=adam, metrics=['accuracy'])
     model.summary()
     return model
 
@@ -54,35 +61,12 @@ def create_generator_seq2seq(
     model.summary()
     return model
 
-
-# def create_discriminator(
-#         future_timesteps,
-#         n_features,
-# ):
-#     model = models.Sequential()
-#     model.add(layers.GRU(future_timesteps, activation='relu', input_shape=(future_timesteps, n_features),
-#                          return_sequences=False, return_state=False, unroll=True))
-#     model.add(layers.Reshape((future_timesteps // 2, future_timesteps // 2)))
-#     model.add(layers.Conv1D(16, 3, 2, "same"))
-#     model.add(layers.LeakyReLU(alpha=0.2))
-#     model.add(layers.Conv1D(32, 3, 2, "same"))
-#     model.add(layers.LeakyReLU(alpha=0.2))
-#     model.add(layers.Conv1D(64, 3, 2, "same"))
-#     model.add(layers.LeakyReLU(alpha=0.2))
-#     model.add(layers.Conv1D(128, 3, 1, "same"))
-#     model.add(layers.LeakyReLU(alpha=0.2))
-#     model.add(layers.Flatten())
-#     model.add(layers.Dense(1, activation='sigmoid'))
-#     model.compile(loss='binary_crossentropy', optimizer=optimizers.Adam(), metrics=['accuracy'])
-#     model.summary()
-#     return model
 def create_discriminator(
         future_timesteps,
         n_features,
 ):
     model = models.Sequential()
-    model.add(layers.GRU(future_timesteps // 2, activation='relu', input_shape=(future_timesteps,
-                                                                                n_features),
+    model.add(layers.GRU(future_timesteps, activation='relu', input_shape=(future_timesteps, n_features),
                          return_sequences=False))
     # model.add(layers.GRU(future_timesteps, activation='relu',
     #                      return_sequences=False))
@@ -93,29 +77,6 @@ def create_discriminator(
     model.compile(loss='binary_crossentropy', optimizer=optimizers.Adam(), metrics=['accuracy'])
     model.summary()
     return model
-
-def prepare_data_future_steps(d, window_size=70, dt=60,
-                              with_time=True, future_steps=20, sensor_id=6):
-    series_sensor_data = d.sensor_values_reshape(dt)
-    series_sensor_data = series_sensor_data[[sensor_id]]
-    if with_time:
-        seconds_in_day = 24 * 60 * 60
-        seconds_past_midnight = \
-            series_sensor_data.index.hour * 3600 + \
-            series_sensor_data.index.minute * 60 + \
-            series_sensor_data.index.second
-        series_sensor_data['sin_time'] = np.sin(2 * np.pi * seconds_past_midnight / seconds_in_day)
-        series_sensor_data['cos_time'] = np.cos(2 * np.pi * seconds_past_midnight / seconds_in_day)
-    data = np.zeros((len(series_sensor_data), window_size, series_sensor_data.shape[1]))
-    output = np.zeros((len(series_sensor_data), future_steps, series_sensor_data.shape[1]))
-    for i in range(future_steps):
-        output[:, i, :] = series_sensor_data.shift(-1 * i)  # Future steps
-    for i in range(window_size):
-        # 0 -> shift(window_size)
-        # 1 -> shift(window_size-1)
-        data[:, i, :] = series_sensor_data.shift(window_size - i)
-    return data[window_size:-future_steps, :, :], output[window_size:-future_steps, :, 0]
-
 
 def create_gan(discriminator, generator, window_size, future_size):
     discriminator.trainable = False
@@ -172,55 +133,69 @@ def predict_validation_set(generator, X_val, y_val):
     ))
     plt.show()
 
+def training(d, model_name,
+                           load_weights=False,
+                           model=None,
+                           model_args=None,
+                           **kwargs):
+    window_size = kwargs.setdefault('window_size', 60)  # Number of steps to look back
+    future_steps = kwargs.setdefault('future_steps',
+                                     int(window_size * 0.2))  # Number of steps to look
+    # back
+    epochs = kwargs.setdefault('epochs', 20)
+    batch = kwargs.setdefault('batch', 128)
+    dt = kwargs.setdefault('dt', 600)
+    sensor_id = kwargs.setdefault('sensor_id', 24)
 
-def training(epochs=1, batch_size=32, sensor_id=6):
-    future_timesteps = 144
-    window_size = 288
-    dt = 600
-
-    # Loading the data
-    bathroom1 = Dataset.parse('dataset/', 'bathroom1')
-    kitchen1 = Dataset.parse('dataset/', 'kitchen1')
-    combined1 = bathroom1.combine(kitchen1)
-
-    X, y = prepare_data_future_steps(combined1, dt=dt, window_size=window_size,
-                                     future_steps=future_timesteps, sensor_id=sensor_id)
-    y = y * 0.8 + 0.1
+    X, y = prepare_data_future_steps(d, **kwargs)
+    y = y[:, :, 0]
+    y = y * 0.9 + 0.05
 
     (
         X_train, y_train,
         X_val, y_val,
         X_test, y_test,
-    ) = test_train_val_split(X, y, dt, 1, 2)
-    # Creating GAN
-    generator = create_generator_seq2seq(window_size, future_timesteps, X.shape[2])
-    discriminator = create_discriminator(future_timesteps, 1)
-    try:
-        discriminator.load_weights('discriminator_%d.h5' % sensor_id)
-    except Exception as e:
-        print("Could not load weights")
-    try:
-        generator.load_weights('generator_%d.h5' % sensor_id)
-    except Exception as e:
-        print("Could not load weights")
-    gan = create_gan(discriminator, generator, window_size, future_timesteps)
-    try:
-        gan.load_weights('gan_%d.h5' % sensor_id)
-    except Exception as e:
-        print("Could not load weights")
+    ) = test_train_val_split(X, y, dt, 2, 2)
+
+        # Creating GAN
+    generator = create_generator_seq2seq(window_size, future_steps, X.shape[2])
+    discriminator = create_discriminator(future_steps, 1)
+    if load_weights:
+        try:
+            discriminator.load_weights('discriminator_%d.h5' % sensor_id)
+        except Exception as e:
+            print("Could not load weights")
+        try:
+            generator.load_weights('generator_%d.h5' % sensor_id)
+        except Exception as e:
+            print("Could not load weights")
+    gan = create_gan(discriminator, generator, window_size, future_steps)
+    if load_weights:
+        try:
+            gan.load_weights('gan_%d.h5' % sensor_id)
+        except Exception as e:
+            print("Could not load weights")
 
     for e in range(1, epochs + 1):
-        if e % 5 == 0:
+        if e % 50 == 0:
             generator.save('generator_sensor_%d_epoch_%d.h5' % (sensor_id, e))
             discriminator.save('discriminator_sensor_%d_epoch_%d.h5' % (sensor_id, e))
             gan.save('gan_sensor_%d_epoch_%d.h5' % (sensor_id, e))
             predict_validation_set(generator, X_val, y_val)
         print("Epoch %d" % e)
-        for _ in tqdm(range(batch_size)):
+        disciminator_indices = np.arange(0, y_train.shape[0])
+        np.random.shuffle(disciminator_indices)
+        generator_indices = np.arange(0, y_train.shape[0])
+        np.random.shuffle(generator_indices)
+
+        for i in tqdm(range(0, len(y_train), batch)):
+
             # generate  random noise as an input  to  initialize the  generator
-            noise = generate_noise(batch_size, window_size)
+            # noise = generate_noise(batch, window_size)
+            noise = X_train[disciminator_indices[i:i+batch]]
+
             # Get a random set of  real images
-            image_batch = y_train[np.random.randint(low=0, high=y_train.shape[0], size=batch_size)]
+            image_batch = y_train[disciminator_indices[i:i+batch]]
 
             # Generate fake MNIST images from noised input
             generated_images = generator.predict(noise)
@@ -233,10 +208,10 @@ def training(epochs=1, batch_size=32, sensor_id=6):
             X = np.concatenate([image_batch, generated_images])
 
             # Labels for generated and real data
-            y_dis = np.zeros(2 * batch_size)
-            y_dis[:batch_size] = 1
+            y_dis = np.zeros(2 * len(disciminator_indices[i:i+batch]))
+            y_dis[:batch] = 1
 
-            X = X.reshape(-1, future_timesteps, 1)
+            X = X.reshape(-1, future_steps, 1)
 
             # Pre train discriminator on  fake and real data  before starting the gan.
             discriminator.trainable = True
@@ -245,8 +220,9 @@ def training(epochs=1, batch_size=32, sensor_id=6):
             #                                                       metrics['accuracy']))
 
             # Tricking the noised input of the Generator as real data
-            noise = generate_noise(batch_size, window_size)
-            y_gen = np.ones(batch_size)
+            # noise = generate_noise(batch, window_size)
+            noise = X_train[generator_indices[i:i+batch]]
+            y_gen = np.ones(len(generator_indices[i:i+batch]))
 
             # During the training of gan,
             # the weights of discriminator should be fixed.
@@ -258,7 +234,6 @@ def training(epochs=1, batch_size=32, sensor_id=6):
             metrics = gan.train_on_batch(noise, y_gen, return_dict=True)
             # print("GAN [Loss=%3.2f, Accuracy=%3.2f]" % (metrics['loss'],
             #                                             metrics['accuracy']))
-
-
-if __name__ == '__main__':
-    training(1000, 64, 6)
+    folder = save_model(model_name, generator, {}, kwargs)
+    evaluate_model(generator, model_name, sensor_id, X_test, y_test, None,
+                   save_folder=folder)
