@@ -235,10 +235,15 @@ class Dataset:
 
     def sensor_data_summary(self):
         """Prints a summary of the data"""
+        counts = {}
         for id in self.sensor_data.id.unique():
+            counts[id] = len(self.sensor_data.loc[self.sensor_data.id == id])
+        sorted_counts = list(counts.items())
+        sorted_counts.sort(key = lambda count: count[1], reverse=True)
+
+        for id, count in sorted_counts:
             data = self.sensor_data.loc[self.sensor_data.id == id]
-            print("\nSensor[%d] %s was activated %d times" % (id, self.lookup_sensor_id(id),
-                                                              len(data)))
+            print("\nSensor[%d] %s was activated %d times" % (id, self.lookup_sensor_id(id), count))
             duration = (data['end_time'] - data['start_time']).astype('timedelta64[s]').astype(int)
             print("Mean activation time: %5.2f +- %3.2e s" % (duration.mean(), duration.std()))
 
@@ -285,64 +290,53 @@ def combine_model_results():
 
 # %%
 if __name__ == '__main__':
-    bathroom1 = Dataset.parse('dataset/', 'bathroom1')
-    kitchen1 = Dataset.parse('dataset/', 'kitchen1')
-    combined1 = bathroom1.combine(kitchen1)
+    smart_home = Dataset.parse('dataset/', 'lights_smart_home_format')
+    smart_home.sensor_data_summary()
 
-    for sensor_id in [6, 9, 24]:
+    for sensor_id in [23, 22, 20]:
 
-        gan_custom.training(combined1, 'GAN (custom)',
-                            epochs=3000,
-                            window_size=120,
-                            future_steps=120,
-                            dt=3600,
-                            with_time=True,
-                            batch=128,
-                            sensor_id=sensor_id,
-                            load_weights=False)
-        #
-        # # Run encoder-decoder model
-        # model = single_sensor_multistep_future_encoder_decoder(timesteps=120,
-        #                                                        future_timesteps=120,
-        #                                                        n_features=3,
-        #                                                        input_n_units=120,
-        #                                                        encoder_extra_lstm=False,
-        #                                                        decoder_hidden_layers=0,
-        #                                                        decoder_lstm_units=120)
-        #
-        # train_future_timesteps(combined1,
-        #                        model_args=None,
-        #                        model=model,
-        #                        model_name='encoder-decoder',
-        #                        epochs=3000,
-        #                        window_size=120,
-        #                        future_steps=120,
-        #                        dt=3600,
-        #                        with_time=True,
-        #                        batch=128,
-        #                        sensor_id=sensor_id,
-        #                        )
-        # # Run vector output model
-        # model_args = {
-        #     "learning_rate": 1e-3,
-        #     "hidden_layer_activation": 'tanh',
-        #     "hidden_layers": 1,
-        #     "hidden_layer_units": 120,
-        #     "input_n_units": 120,
-        #     "second_layer_input": 120
-        # }
-        #
-        # train_future_timesteps(combined1,
-        #                        model_args=model_args,
-        #                        model_name='lstm_vector_output',
-        #                        epochs=3000,
-        #                        window_size=120,
-        #                        future_steps=120,
-        #                        dt=3600,
-        #                        with_time=True,
-        #                        batch=128,
-        #                        sensor_id=sensor_id,
-        #                        load_weights=False)
+        # Run encoder-decoder model
+        model = single_sensor_multistep_future_encoder_decoder(timesteps=120,
+                                                               future_timesteps=120,
+                                                               n_features=3,
+                                                               input_n_units=120,
+                                                               encoder_extra_lstm=False,
+                                                               decoder_hidden_layers=0,
+                                                               decoder_lstm_units=120)
+
+        train_future_timesteps(smart_home,
+                               model_args=None,
+                               model=model,
+                               model_name='encoder-decoder',
+                               epochs=3000,
+                               window_size=120,
+                               future_steps=120,
+                               dt=3600,
+                               with_time=True,
+                               batch=128,
+                               sensor_id=sensor_id,
+                               )
+        # Run vector output model
+        model_args = {
+            "learning_rate": 1e-3,
+            "hidden_layer_activation": 'tanh',
+            "hidden_layers": 1,
+            "hidden_layer_units": 120,
+            "input_n_units": 120,
+            "second_layer_input": 120
+        }
+
+        train_future_timesteps(smart_home,
+                               model_args=model_args,
+                               model_name='lstm_vector_output',
+                               epochs=3000,
+                               window_size=120,
+                               future_steps=120,
+                               dt=3600,
+                               with_time=True,
+                               batch=128,
+                               sensor_id=sensor_id,
+                               load_weights=False)
 
     combine_model_results()
 
