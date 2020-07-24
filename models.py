@@ -109,11 +109,11 @@ def single_sensor_multistep_future_encoder_decoder(
         input_n_units=10,
         encoder_extra_lstm=True,
         encoder_extra_lstm_units=10,
-        encoder_extra_lstm_activation='relu',
+        encoder_extra_lstm_activation='tanh',
         decoder_lstm_units=10,
-        decoder_lstm_activation='relu',
+        decoder_lstm_activation='tanh',
         decoder_hidden_layers=1,
-        decoder_hidden_layer_activation='relu',
+        decoder_hidden_layer_activation='tanh',
         decoder_hidden_layer_units=5,
         output_activcation='sigmoid',
         learning_rate=0.00476
@@ -131,7 +131,7 @@ def single_sensor_multistep_future_encoder_decoder(
     for _ in range(decoder_hidden_layers):
         model.add(layers.Dense(decoder_hidden_layer_units, activation=decoder_hidden_layer_activation))
     model.add(layers.TimeDistributed(layers.Dense(1, activation=output_activcation)))
-    model.add(layers.Reshape(future_timesteps))
+    model.add(layers.Reshape((future_timesteps, )))
     adam = optimizers.Adam(learning_rate)
     model.compile(loss='binary_crossentropy', optimizer=adam, metrics=['accuracy'])
     model.summary()

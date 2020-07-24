@@ -1,5 +1,7 @@
 # %%
 import csv
+import json
+import os
 from collections import Counter
 
 import pandas as pd
@@ -12,6 +14,7 @@ import hmmlearn.utils
 import hmmlearn.stats
 
 from lstm import train_future_timesteps
+from models import single_sensor_multistep_future_encoder_decoder
 from similarity import LOF, isolation_forest, isolation_forest_all
 
 
@@ -237,31 +240,97 @@ class Dataset:
                                                               len(data)))
             duration = (data['end_time'] - data['start_time']).astype('timedelta64[s]').astype(int)
             print("Mean activation time: %5.2f +- %3.2e s" % (duration.mean(), duration.std()))
+
+def combine_model_results():
+    paths = list(filter(lambda s: s.startswith('model_'), os.listdir('.')))
+
+    kwargs_fields = ['model_name', 'model_number', 'sensor_id', 'window_size', 'future_steps',
+                     'dt', 'with_time',
+                     'batch', 'epochs']
+    metrics_fields = ['loss', 'accuracy', 'val_loss', 'val_accuracy', 'mean true negatives', 'mean false positives', 'mean false negatives', 'mean true positives', 'mean_binary_accuracy']
+    fieldnames = kwargs_fields + metrics_fields
+    if os.path.exists('models_table.csv'):
+        os.remove('models_table.csv')
+
+    data = []
+    for p in paths:
+        name = os.listdir(p)[0].split('_sensor')[0]
+        number = p.split('_')[1]
+        kwargs, model_args, metrics = None, None, None
+        kwargs_file = p + '/' + list(filter(lambda s: s.endswith('kwargs.json'), os.listdir(p)))[0]
+        model_args_file =  p + '/' + list(filter(lambda s: s.endswith('model_args.json'), os.listdir(p)))[0]
+        metrics_file =  p + '/' + list(filter(lambda s: s.endswith('metrics.json'),
+                                              os.listdir(p)))[0]
+        with open(kwargs_file, 'r') as f:
+            kwargs = json.load(f)
+        with open(model_args_file, 'r') as f:
+            model_args = json.load(f)
+        with open(metrics_file, 'r') as f:
+            metrics = json.load(f)
+        if model_args is not None:
+            kwargs.update(model_args)
+        if metrics is not None:
+            kwargs.update(metrics)
+        kwargs['model_name'] = name
+        kwargs['model_number'] = number
+        kwargs = {k: v for k, v in kwargs.items() if k in fieldnames}
+        write_header = not os.path.exists('models_table.csv')
+        with open('models_table.csv', 'a') as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            if write_header:
+                writer.writeheader()
+            writer.writerow(kwargs)
+
+
 # %%
 if __name__ == '__main__':
     bathroom1 = Dataset.parse('dataset/', 'bathroom1')
     kitchen1 = Dataset.parse('dataset/', 'kitchen1')
     combined1 = bathroom1.combine(kitchen1)
 
-    model_args = {
-        "learning_rate": 1e-3,
-        "hidden_layer_activation": 'tanh',
-        "hidden_layers": 1,
-        "hidden_layer_units": 24,
-        "input_n_units": 48,
-        "second_layer_input": 24
-    }
+    for sensor_id in [6, 9, 24]:
+        # Run encoder-decoder model
+        model = single_sensor_multistep_future_encoder_decoder(timesteps=120,
+                                                               future_timesteps=120,
+                                                               n_features=3,
+                                                               input_n_units=120,
+                                                               encoder_extra_lstm=False,
+                                                               decoder_hidden_layers=0,
+                                                               decoder_lstm_units=120)
 
-    train_future_timesteps(combined1,
-                           model_args=model_args,
-                           model_name='lstm_vector_output',
-                           epochs=3000,
-                           window_size=48,
-                           future_steps=24,
-                           dt=3600,
-                           with_time=True,
-                           batch=128,
-                           sensor_id=6,
-                           load_weights=False)
+        train_future_timesteps(combined1,
+                               model_args=None,
+                               model=model,
+                               model_name='encoder-decoder',
+                               epochs=3000,
+                               window_size=120,
+                               future_steps=120,
+                               dt=3600,
+                               with_time=True,
+                               batch=128,
+                               sensor_id=sensor_id,
+                               )
+        # Run vector output model
+        model_args = {
+            "learning_rate": 1e-3,
+            "hidden_layer_activation": 'tanh',
+            "hidden_layers": 1,
+            "hidden_layer_units": 120,
+            "input_n_units": 120,
+            "second_layer_input": 120
+        }
 
+        train_future_timesteps(combined1,
+                               model_args=model_args,
+                               model_name='lstm_vector_output',
+                               epochs=3000,
+                               window_size=120,
+                               future_steps=120,
+                               dt=3600,
+                               with_time=True,
+                               batch=128,
+                               sensor_id=sensor_id,
+                               load_weights=False)
+
+    combine_model_results()
 

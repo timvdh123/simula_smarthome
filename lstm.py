@@ -126,7 +126,7 @@ def evaluate_model(
         plt.plot(training_history['accuracy'], linewidth=2, label='Train')
         plt.plot(training_history['val_accuracy'], linewidth=2, label='Validation')
         plt.legend(loc='upper right')
-        plt.title('Model loss')
+        plt.title('Model accuracy')
         plt.ylabel('Accuracy')
         plt.xlabel('Epoch')
         plt.savefig("%s_accuracy.png" % base_path)
@@ -251,6 +251,10 @@ def train_future_timesteps(d, model_name,
                              save_best_only=False,
                              monitor='val_accuracy',
                              verbose=0)
+        cp_best = ModelCheckpoint(filepath="%s_%d_best.h5" % (model_name, id),
+                             save_best_only=True,
+                             monitor='val_accuracy',
+                             verbose=0)
         if load_weights:
             if os.path.exists(model_filepath):
                 try:
@@ -265,7 +269,7 @@ def train_future_timesteps(d, model_name,
                                   batch_size=batch,
                                   verbose=1,
                                   validation_data=(X_val, y_val_sensor),
-                                  callbacks=[early_stopper, out_batch, cp],
+                                  callbacks=[early_stopper, out_batch, cp, cp_best],
                                   shuffle=True,
                                   ).history
         model.save(model_filepath)
