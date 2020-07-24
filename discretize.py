@@ -299,7 +299,7 @@ if __name__ == '__main__':
                             with_time=True,
                             batch=128,
                             sensor_id=sensor_id,
-                            load_weights=True)
+                            load_weights=False)
         #
         # # Run encoder-decoder model
         # model = single_sensor_multistep_future_encoder_decoder(timesteps=120,

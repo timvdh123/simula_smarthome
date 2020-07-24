@@ -219,8 +219,8 @@ def training(d, model_name,
             # print("Discriminator [Loss=%3.2f, Accuracy=%3.2f]" % (metrics['loss'],
             #                                                       metrics['accuracy']))
 
-            generator.train_on_batch(X_train[generator_indices[i:i+batch]],
-                                     y_train[generator_indices[i:i+batch]])
+            # generator.train_on_batch(X_train[generator_indices[i:i+batch]],
+            #                          y_train[generator_indices[i:i+batch]])
 
             # Tricking the noised input of the Generator as real data
             # noise = generate_noise(batch, window_size)
