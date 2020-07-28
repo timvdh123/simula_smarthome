@@ -14,7 +14,7 @@ import hmmlearn.utils
 import hmmlearn.stats
 
 import gan_custom
-from lstm import train_future_timesteps
+from lstm import train_future_timesteps, train_activity_synthesis
 from models import single_sensor_multistep_future_encoder_decoder
 from similarity import LOF, isolation_forest, isolation_forest_all
 
@@ -212,8 +212,8 @@ class Dataset:
             table[
                 np.arange(row.bin_start, row.bin_end),
             ] = row.id
-
-        return table.astype(int)
+        return pd.DataFrame(table.astype(int), columns=['activity'],
+                     index=time)
 
     def learn_hmm(self):
         """Learns a multinomial hidden markovel model over the sensor data."""
@@ -290,53 +290,87 @@ def combine_model_results():
 
 # %%
 if __name__ == '__main__':
-    smart_home = Dataset.parse('dataset/', 'lights_smart_home_format')
-    smart_home.sensor_data_summary()
+    bathroom1 = Dataset.parse('dataset/', 'bathroom1')
+    kitchen1 = Dataset.parse('dataset/', 'kitchen1')
+    combined1 = bathroom1.combine(kitchen1)
 
-    for sensor_id in [23, 22, 20]:
+    # Run vector output model
+    model_args = {
+        "learning_rate": 1e-3,
+        "hidden_layer_activation": 'tanh',
+        "hidden_layers": 1,
+        "hidden_layer_units": 120,
+        "input_n_units": 120,
+        "second_layer_input": 120,
+        "n_activities": 25
+    }
 
-        # Run encoder-decoder model
-        model = single_sensor_multistep_future_encoder_decoder(timesteps=120,
-                                                               future_timesteps=120,
-                                                               n_features=3,
-                                                               input_n_units=120,
-                                                               encoder_extra_lstm=False,
-                                                               decoder_hidden_layers=0,
-                                                               decoder_lstm_units=120)
+    train_activity_synthesis(combined1,
+                           model_args=model_args,
+                           model_name='vector_output_activity_synthesis',
+                           epochs=3000,
+                           window_size=120,
+                           future_steps=120,
+                           dt=3600,
+                           with_time=True,
+                           batch=128,
+                           load_weights=True,
+                           sensor_id=-1)
 
-        train_future_timesteps(smart_home,
-                               model_args=None,
-                               model=model,
-                               model_name='encoder-decoder',
-                               epochs=3000,
-                               window_size=120,
-                               future_steps=120,
-                               dt=3600,
-                               with_time=True,
-                               batch=128,
-                               sensor_id=sensor_id,
-                               )
-        # Run vector output model
-        model_args = {
-            "learning_rate": 1e-3,
-            "hidden_layer_activation": 'tanh',
-            "hidden_layers": 1,
-            "hidden_layer_units": 120,
-            "input_n_units": 120,
-            "second_layer_input": 120
-        }
-
-        train_future_timesteps(smart_home,
-                               model_args=model_args,
-                               model_name='lstm_vector_output',
-                               epochs=3000,
-                               window_size=120,
-                               future_steps=120,
-                               dt=3600,
-                               with_time=True,
-                               batch=128,
-                               sensor_id=sensor_id,
-                               load_weights=False)
-
-    combine_model_results()
+    # for sensor_id in [6, 9, 24]:
+    #
+    #     # gan_custom.training(combined1, 'GAN (custom)',
+    #     #                     epochs=3000,
+    #     #                     window_size=120,
+    #     #                     future_steps=120,
+    #     #                     dt=3600,
+    #     #                     with_time=True,
+    #     #                     batch=128,
+    #     #                     sensor_id=sensor_id,
+    #     #                     load_weights=False)
+    #     #
+    #     # Run encoder-decoder model
+    #     model = single_sensor_multistep_future_encoder_decoder(timesteps=120,
+    #                                                            future_timesteps=120,
+    #                                                            n_features=3,
+    #                                                            input_n_units=120,
+    #                                                            encoder_extra_lstm=False,
+    #                                                            decoder_hidden_layers=0,
+    #                                                            decoder_lstm_units=120)
+    #
+    #     train_future_timesteps(combined1,
+    #                            model_args=None,
+    #                            model=model,
+    #                            model_name='encoder-decoder',
+    #                            epochs=3000,
+    #                            window_size=120,
+    #                            future_steps=120,
+    #                            dt=3600,
+    #                            with_time=True,
+    #                            batch=128,
+    #                            sensor_id=sensor_id,
+    #                            )
+    #     # Run vector output model
+    #     model_args = {
+    #         "learning_rate": 1e-3,
+    #         "hidden_layer_activation": 'tanh',
+    #         "hidden_layers": 1,
+    #         "hidden_layer_units": 120,
+    #         "input_n_units": 120,
+    #         "second_layer_input": 120
+    #     }
+    #
+    #     train_future_timesteps(combined1,
+    #                            model_args=model_args,
+    #                            model_name='lstm_vector_output',
+    #                            epochs=3000,
+    #                            window_size=120,
+    #                            future_steps=120,
+    #                            dt=3600,
+    #                            with_time=True,
+    #                            batch=128,
+    #                            sensor_id=sensor_id,
+    #                            load_weights=False)
+    #
+    # combine_model_results()
 

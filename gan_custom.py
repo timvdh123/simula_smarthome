@@ -238,5 +238,5 @@ def training(d, model_name,
             # print("GAN [Loss=%3.2f, Accuracy=%3.2f]" % (metrics['loss'],
             #                                             metrics['accuracy']))
     folder = save_model(model_name, generator, {}, kwargs)
-    evaluate_model(generator, model_name, sensor_id, X_test, y_test, None,
+    evaluate_model(generator, model_name, sensor_id, X_test, y_test, training_history=None,
                    save_folder=folder)

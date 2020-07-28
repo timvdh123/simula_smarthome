@@ -3,6 +3,8 @@ from fastdtw import fastdtw
 from tensorflow.keras import layers, optimizers, models, losses, regularizers
 from tensorflow.keras import backend as K
 from tensorflow.keras.regularizers import l1
+from tensorflow.keras.losses import SparseCategoricalCrossentropy
+from tensorflow.python.ops import math_ops
 
 
 def custom_loss(loss_metric, extra_weight_1=1000, extra_weight_all_zeros=100):
@@ -69,6 +71,14 @@ def sequence_matching_loss(y_true, y_pred):
         # _dist, _path = fastdtw(y_true[i].eval(), y_pred[i].eval())
         # dist += _dist
     return dist
+
+class WeightedSparseCategoricalCrossentropy(SparseCategoricalCrossentropy):
+    def __call__(self, y_true, y_pred, sample_weight=None):
+        sw = K.cast_to_floatx(K.equal(y_true, 0.0))*0.01
+        sw = math_ops.add(sw, K.cast_to_floatx(K.not_equal(y_true, 0.0))*1)
+        return super().__call__(y_true, y_pred, sample_weight=sw)
+
+
 def single_sensor_multistep_future(
         timesteps,
         future_timesteps,
@@ -88,7 +98,7 @@ def single_sensor_multistep_future(
                    return_sequences=True))
     if second_layer_input is None:
         second_layer_input = input_n_units//2
-    model.add(layers.GRU(input_n_units//2, activation=input_activation,
+    model.add(layers.GRU(second_layer_input, activation=input_activation,
                    return_sequences=False))
 
     for _ in range(hidden_layers):
@@ -98,6 +108,35 @@ def single_sensor_multistep_future(
     bc = losses.BinaryCrossentropy()
     # loss = sequence_matching_loss(bc)
     model.compile(loss='binary_crossentropy', optimizer=adam, metrics=['accuracy'])
+    model.summary()
+    return model
+
+def activity_synthesis_vector_output(
+        timesteps,
+        future_timesteps,
+        n_features,
+        n_activities,
+        input_activation='tanh',
+        input_n_units=10,
+        hidden_layers=1,
+        hidden_layer_activation='softmax',
+        hidden_layer_units=5,
+        output_activcation='softmax',
+        learning_rate=0.00476,
+        second_layer_input=None,
+):
+    model = models.Sequential()
+    model.add(layers.GRU(input_n_units, activation=input_activation, input_shape=(timesteps, n_features),
+                   return_sequences=False))
+    model.add(layers.RepeatVector(future_timesteps))
+    if second_layer_input is None:
+        second_layer_input = input_n_units//2
+    model.add(layers.GRU(second_layer_input, activation=input_activation,
+                   return_sequences=True))
+    model.add(layers.TimeDistributed(layers.Dense(n_activities, activation='softmax')))
+    adam = optimizers.Adam(learning_rate)
+    loss = WeightedSparseCategoricalCrossentropy()
+    model.compile(loss=loss, optimizer=adam, metrics=['accuracy'])
     model.summary()
     return model
 
