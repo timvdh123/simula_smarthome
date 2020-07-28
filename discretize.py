@@ -309,11 +309,11 @@ if __name__ == '__main__':
                            model_args=model_args,
                            model_name='vector_output_activity_synthesis',
                            epochs=3000,
-                           window_size=120,
-                           future_steps=120,
-                           dt=3600,
+                           window_size=24*60,
+                           future_steps=24*60,
+                           dt=60,
                            with_time=True,
-                           batch=128,
+                           batch=512,
                            load_weights=True,
                            sensor_id=-1)
 
