@@ -1,9 +1,8 @@
 import tensorflow as tf
-from fastdtw import fastdtw
-from tensorflow.keras import layers, optimizers, models, losses, regularizers
 from tensorflow.keras import backend as K
+from tensorflow.keras import layers, optimizers, models
+from tensorflow.keras.losses import SparseCategoricalCrossentropy, BinaryCrossentropy
 from tensorflow.keras.regularizers import l1
-from tensorflow.keras.losses import SparseCategoricalCrossentropy
 from tensorflow.python.ops import math_ops
 
 
@@ -78,6 +77,18 @@ class WeightedSparseCategoricalCrossentropy(SparseCategoricalCrossentropy):
         sw = math_ops.add(sw, K.cast_to_floatx(K.not_equal(y_true, 0.0))*1)
         return super().__call__(y_true, y_pred, sample_weight=sw)
 
+class WeightedBinaryCrossentropy(BinaryCrossentropy):
+    def __call__(self, y_true, y_pred, sample_weight=None):
+        """ Automatically calculates the weight of 0-1 activations using the number of
+        activations in y_true.
+        """
+        num_ones = K.sum(y_true)
+        num_zeros = K.sum(K.cast_to_floatx(K.not_equal(y_true, 0.0)))
+
+        sw = K.cast_to_floatx(K.equal(y_true, 0.0))*(num_ones/num_zeros)
+        sw = math_ops.add(sw, K.cast_to_floatx(K.not_equal(y_true, 0.0))*1)
+        return super().__call__(y_true, y_pred, sample_weight=sw)
+
 
 def single_sensor_multistep_future(
         timesteps,
@@ -105,9 +116,11 @@ def single_sensor_multistep_future(
         model.add(layers.Dense(hidden_layer_units, activation=hidden_layer_activation))
     model.add(layers.Dense(future_timesteps, activation=output_activcation))
     adam = optimizers.Adam(learning_rate)
-    bc = losses.BinaryCrossentropy()
+    # bc = losses.BinaryCrossentropy()
     # loss = sequence_matching_loss(bc)
-    model.compile(loss='binary_crossentropy', optimizer=adam, metrics=['accuracy'])
+    loss = WeightedBinaryCrossentropy()
+
+    model.compile(loss=loss, optimizer=adam, metrics=['accuracy'])
     model.summary()
     return model
 
@@ -139,6 +152,33 @@ def activity_synthesis_vector_output(
     model.compile(loss=loss, optimizer=adam, metrics=['accuracy'])
     model.summary()
     return model
+
+def activity_synthesis_convolutional(
+        timesteps,
+        future_timesteps,
+        n_features,
+        n_activities,
+):
+    model = models.Sequential()
+    model.add(layers.Conv1D(filters=64,
+                            kernel_size=2,
+                            activation='relu',
+                            input_shape=(timesteps, n_features)))
+    model.add(layers.MaxPooling1D(pool_size=2))
+    model.add(layers.Flatten())
+    model.add(layers.RepeatVector(future_timesteps))
+
+    model.add(layers.TimeDistributed(layers.Dense(n_activities, activation='softmax')))
+    adam = optimizers.Adam(learning_rate)
+
+    model.add(layers.Dense(50, activation='relu'))
+    model.add(layers.Dense(future_timesteps))
+    adam = optimizers.Adam(learning_rate)
+    loss = WeightedSparseCategoricalCrossentropy()
+    model.compile(loss=loss, optimizer=adam, metrics=['accuracy'])
+    model.summary()
+    return model
+
 
 def single_sensor_multistep_future_encoder_decoder(
         timesteps,

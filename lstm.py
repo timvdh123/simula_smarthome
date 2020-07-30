@@ -10,6 +10,8 @@ from tensorflow.keras import metrics
 import tensorflow as tf
 from sklearn.metrics import confusion_matrix
 from tensorflow.python.keras.utils.vis_utils import plot_model
+import pandas as pd
+from tqdm import tqdm
 
 from models import single_sensor_multistep_future, activity_synthesis_vector_output
 
@@ -61,8 +63,10 @@ class NBatchLogger(Callback):
 
 
 def prepare_data_future_steps(d, window_size=70, dt=60,
-                              with_time=False, future_steps=20, sensor_id=24, **kwargs):
+                              with_time=False, future_steps=20, sensor_id=24, features=[24, 6, 5],
+                                                                                       **kwargs):
     series_sensor_data = d.sensor_values_reshape(dt)
+    features_data = series_sensor_data[features]
     series_sensor_data = series_sensor_data[[sensor_id]]
     if with_time:
         seconds_in_day = 24 * 60 * 60
@@ -72,14 +76,16 @@ def prepare_data_future_steps(d, window_size=70, dt=60,
             series_sensor_data.index.second
         series_sensor_data['sin_time'] = np.sin(2 * np.pi * seconds_past_midnight / seconds_in_day)
         series_sensor_data['cos_time'] = np.cos(2 * np.pi * seconds_past_midnight / seconds_in_day)
-    data = np.zeros((len(series_sensor_data), window_size, series_sensor_data.shape[1]))
+        features_data['sin_time'] = np.sin(2 * np.pi * seconds_past_midnight / seconds_in_day)
+        features_data['cos_time'] = np.cos(2 * np.pi * seconds_past_midnight / seconds_in_day)
+    data = np.zeros((len(series_sensor_data), window_size, features_data.shape[1]))
     output = np.zeros((len(series_sensor_data), future_steps, series_sensor_data.shape[1]))
     for i in range(future_steps):
         output[:, i, :] = series_sensor_data.shift(-1 * i)  # Future steps
     for i in range(window_size):
         # 0 -> shift(window_size)
         # 1 -> shift(window_size-1)
-        data[:, i, :] = series_sensor_data.shift(window_size - i)
+        data[:, i, :] = features_data.shift(window_size - i)
     return data[window_size:-future_steps, :, :], output[window_size:-future_steps, :]
 
 def prepare_data_activity_synthesis(d, window_size=70, dt=60,
@@ -117,6 +123,125 @@ def test_train_val_split(X, y, dt, n_val_days, n_test_days):
         X_val, y_val,
         X_test, y_test,
     )
+
+def synthesize_sensors_multiple_days(dataset, folders, names, start_index, num_repetitions):
+    models, model_args_all, kwargs_all = {}, {}, {}
+    kwargs = None
+    for sensor_id, folder in folders.items():
+        model_name = names[sensor_id]
+        with open("%s/%s_sensor_%d_model_args.json" % (folder, model_name, sensor_id), 'r') as f:
+            model_args = json.load(f)
+        with open("%s/%s_sensor_%d_kwargs.json" % (folder, model_name, sensor_id), 'r') as f:
+            kwargs = json.load(f)
+
+        n_features = len(kwargs.get('features', [sensor_id])) + 2 # 2 time features + sensor values
+        model = single_sensor_multistep_future(
+            timesteps=kwargs['window_size'],
+            future_timesteps=kwargs['future_steps'],
+            n_features=n_features,
+            **model_args)
+        model.load_weights('%s/%s_sensor_%d_model.h5' % (folder, model_name, sensor_id))
+        models[sensor_id] = model
+        model_args_all[sensor_id] = model_args
+        kwargs_all[sensor_id] = kwargs
+
+    series_sensor_data = dataset.sensor_values_reshape(kwargs['dt'])
+    s = min(start_index, len(series_sensor_data) - kwargs['window_size'])
+    if s < start_index:
+        num_repetitions += (start_index - s)
+        start_index = s
+    extra = num_repetitions + kwargs['future_steps'] + kwargs['window_size'] + start_index \
+            - len(series_sensor_data)
+    if extra > 0:
+        new = pd.DataFrame(data=np.zeros((extra, len(series_sensor_data.columns))),
+                           columns=series_sensor_data.columns)
+        new.index = \
+            [max(series_sensor_data.index) + pd.DateOffset(seconds=int(i)) for i in
+             ((new.index + 1) * kwargs['dt']).values]
+        series_sensor_data = pd.concat([series_sensor_data, new])
+
+    features_data = series_sensor_data[kwargs['features']].copy()
+    if kwargs['with_time']:
+        seconds_in_day = 24 * 60 * 60
+        seconds_past_midnight = \
+            series_sensor_data.index.hour * 3600 + \
+            series_sensor_data.index.minute * 60 + \
+            series_sensor_data.index.second
+        features_data['sin_time'] = np.sin(2 * np.pi * seconds_past_midnight / seconds_in_day)
+        features_data['cos_time'] = np.cos(2 * np.pi * seconds_past_midnight / seconds_in_day)
+
+    data = features_data.values
+    data_output = np.copy(data)
+
+    X_start = start_index
+    X_end = X_start + kwargs['window_size']
+    X_prediction = X_end + kwargs['future_steps']
+    for _ in tqdm(range(num_repetitions)):
+        if X_end >= len(data_output):
+            print("End reached")
+            break
+        for sensor_id, model in models.items():
+            d0 = data_output[X_start:X_end].reshape(1, kwargs['window_size'], data.shape[1])
+            y0 = (model.predict(d0) > 0.5).astype(float)[0]
+            data_output[X_end:X_prediction, kwargs['features'].index(sensor_id)] = y0
+
+        X_start += kwargs['future_steps']
+        X_end += kwargs['future_steps']
+        X_prediction += kwargs['future_steps']
+
+    output_data = pd.DataFrame(data=data_output[(start_index + kwargs['window_size']):(
+            start_index + kwargs['window_size'] + num_repetitions), :len(kwargs['features'])],
+                               columns=kwargs['features'],
+                               index=series_sensor_data.index[(start_index + kwargs['window_size']):(
+            start_index + kwargs['window_size'] + num_repetitions)])
+
+    original_length = len(dataset.sensor_values_reshape(kwargs['dt']))
+    input_data = pd.DataFrame(data=data[:original_length,:len(kwargs['features'])],
+                              columns=kwargs['features'],
+                              index=series_sensor_data.index[:original_length])
+    return input_data, output_data
+
+def synthesize_activity_multiple_days(dataset, folder, model_name, start_index, num_repetitions):
+    model_args, kwargs = None, None
+    with open("%s/%s_sensor_%d_model_args.json" % (folder, model_name, -1), 'r') as f:
+        model_args = json.load(f)
+    with open("%s/%s_sensor_%d_kwargs.json" % (folder, model_name, -1), 'r') as f:
+        kwargs = json.load(f)
+    model = activity_synthesis_vector_output(
+        timesteps=kwargs['window_size'],
+        future_timesteps=kwargs['future_steps'],
+        n_features=3,
+        **model_args)
+    model.load_weights('%s/%s_sensor_%d_model.h5' % (folder, model_name, -1))
+
+    activity_data = dataset.activity_reshape(kwargs['dt'])
+    if kwargs.get('with_time', True):
+        seconds_in_day = 24 * 60 * 60
+        seconds_past_midnight = \
+            activity_data.index.hour * 3600 + \
+            activity_data.index.minute * 60 + \
+            activity_data.index.second
+        activity_data['sin_time'] = np.sin(2 * np.pi * seconds_past_midnight / seconds_in_day)
+        activity_data['cos_time'] = np.cos(2 * np.pi * seconds_past_midnight / seconds_in_day)
+    data = activity_data.values
+    data_output = np.copy(data)
+
+    X_start = start_index
+    X_end = X_start + kwargs['window_size']
+    X_prediction = X_end + kwargs['future_steps']
+    for _ in range(num_repetitions):
+        if X_end >= len(data_output):
+            print("End reached")
+            break
+        d0 = data_output[X_start:X_end].reshape(1, kwargs['window_size'], 3)
+        y0 = np.argmax(model.predict(d0), axis=-1)
+        data_output[X_end:X_prediction, 0] = y0
+
+        X_start += kwargs['future_steps']
+        X_end += kwargs['future_steps']
+        X_prediction += kwargs['future_steps']
+
+    return data_output, data
 
 
 def evaluate_model(
@@ -296,7 +421,7 @@ def load_model_parameters(folder, model_name, sensor_id):
     model_args, kwargs = None, None
     with open("%s/%s_sensor_%d_model_args.json" % (folder, model_name, sensor_id), 'r') as f:
         model_args = json.load(f)
-    with open("%s/%s_sensor_%d_kwargs.json" % (folder, model_name, sensor_id), 'w') as f:
+    with open("%s/%s_sensor_%d_kwargs.json" % (folder, model_name, sensor_id), 'r') as f:
         kwargs = json.load(f)
     model = single_sensor_multistep_future(**model_args)
     model.load_weights('%s/%s_sensor_%d_model.h5' % (folder, model_name, sensor_id))
@@ -452,5 +577,5 @@ def train_future_timesteps(d, model_name,
                                   ).history
         model.save(model_filepath)
         folder = save_model(model_name, model, model_args, kwargs)
-        evaluate_model(model, model_name, sensor_id, X_test, y_test_sensor, model_history,
-                       save_folder=folder)
+        evaluate_model(model, model_name, sensor_id, X_test, y_test_sensor, training_history=model_history,
+                       save_folder=folder, is_activity=False)
