@@ -91,7 +91,7 @@ def create_gan(discriminator, generator, window_size, future_size):
     return gan
 
 
-def test_train_val_split(X, y, dt, n_val_days, n_test_days):
+def train_val_test_split(X, y, dt, n_val_days, n_test_days):
     X_train = X[:-1 * (n_val_days + n_test_days) * (3600 // dt) * 24, :, :]
     X_val = X[-(n_val_days + n_test_days) * (3600 // dt) * 24:-n_test_days * (3600 // dt) * 24, :,
             :]
@@ -155,7 +155,7 @@ def training(d, model_name,
         X_train, y_train,
         X_val, y_val,
         X_test, y_test,
-    ) = test_train_val_split(X, y, dt, 2, 2)
+    ) = train_val_test_split(X, y, dt, 2, 2)
 
         # Creating GAN
     generator = create_generator_seq2seq(window_size, future_steps, X.shape[2])

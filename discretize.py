@@ -206,7 +206,7 @@ class Dataset:
                      index=time)
 
     def learn_hmm(self):
-        """Learns a multinomial hidden markovel model over the sensor data."""
+        """Learns a multinomial hidden markov model over the sensor data."""
         remodel = hmm.MultinomialHMM(n_components=self.sensor_data.id.nunique(),
                                      n_iter=100, tol=1e-8)
         table = self.last_fired()
