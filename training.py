@@ -3,128 +3,33 @@ import os
 
 import matplotlib.pyplot as plt
 import numpy as np
-from fastdtw import fastdtw
-from sklearn.utils import class_weight
-from tensorflow.keras.callbacks import Callback, EarlyStopping, ModelCheckpoint
-from tensorflow.keras import metrics
-import tensorflow as tf
-from sklearn.metrics import confusion_matrix
-from tensorflow.python.keras.utils.vis_utils import plot_model
 import pandas as pd
+from fastdtw import fastdtw
+from sklearn.metrics import confusion_matrix
+from tensorflow.keras import metrics
+from tensorflow.keras.callbacks import ModelCheckpoint
 from tqdm import tqdm
 
 from models import single_sensor_multistep_future, activity_synthesis_vector_output
+from utils import NBatchLogger, IsNanEarlyStopper, train_val_test_split, prepare_data_future_steps, \
+    prepare_data_activity_synthesis, save_model
 
 
-class IsNanEarlyStopper(EarlyStopping):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+def synthesize_sensors_multiple_days(dataset, folders, names, start_index, num_repetitions,
+                                     deterministic=True, eps=0.2):
+    """Uses a trained model to synthesize sensor future sensor values.
 
-    def on_epoch_end(self, epoch, logs=None):
-        current = self.get_monitor_value(logs)
-        if current is None:
-            return
-        if np.isnan(current):
-            self.model.stop_training = True
-
-    def on_batch_end(self, batch, logs={}):
-        current = self.get_monitor_value(logs)
-        if np.isnan(current):
-            self.model.stop_training = True
-
-
-class NBatchLogger(Callback):
+    :param dataset: The dataset that will be used
+    :param folders: A dictionary of sensor ids -> folder names which will be used to load the models
+    :param names: A dictionary of sensor ids -> model names used to load the models.
+    :param start_index: Index of the dataset to start prediction
+    :param num_repetitions: Number of repetitions to repeat the prediction
+    :param deterministic: Whether a deterministic prediction will be used (which means that a
+    predicted value >0.5 always becomes a 1, otherwise a 0).
+    :param eps: When deterministic is set to False, a normal distribution with mean 0, std=eps is
+    used to add noise to the predicted value
+    :return: An input and output DataFrame which contain the input values and predicted values.
     """
-    A Logger that log average performance per `display` steps.
-    """
-
-    def __init__(self, display):
-        self.step = 0
-        self.display = display
-        self.metric_cache = {}
-
-    def on_batch_end(self, batch, logs={}):
-        self.step += 1
-        if np.isnan(logs.get('loss', 0)) or logs.get('loss', 0) > 100:
-            for k in logs:
-                self.metric_cache[k] = self.metric_cache.get(k, 0) + logs[k]
-            if self.step % self.display == 0:
-                metrics_log = ''
-                for (k, v) in self.metric_cache.items():
-                    val = v / self.display
-                    if abs(val) > 1e-3:
-                        metrics_log += ' - %s: %.4f' % (k, val)
-                    else:
-                        metrics_log += ' - %s: %.4e' % (k, val)
-                print('step: {}/{} ... {}'.format(self.step,
-                                                  self.params['steps'],
-                                                  metrics_log))
-                self.metric_cache.clear()
-
-
-def prepare_data_future_steps(d, window_size=70, dt=60,
-                              with_time=False, future_steps=20, sensor_id=24, features=[24, 6, 5],
-                                                                                       **kwargs):
-    series_sensor_data = d.sensor_values_reshape(dt)
-    features_data = series_sensor_data[features]
-    series_sensor_data = series_sensor_data[[sensor_id]]
-    if with_time:
-        seconds_in_day = 24 * 60 * 60
-        seconds_past_midnight = \
-            series_sensor_data.index.hour * 3600 + \
-            series_sensor_data.index.minute * 60 + \
-            series_sensor_data.index.second
-        series_sensor_data['sin_time'] = np.sin(2 * np.pi * seconds_past_midnight / seconds_in_day)
-        series_sensor_data['cos_time'] = np.cos(2 * np.pi * seconds_past_midnight / seconds_in_day)
-        features_data['sin_time'] = np.sin(2 * np.pi * seconds_past_midnight / seconds_in_day)
-        features_data['cos_time'] = np.cos(2 * np.pi * seconds_past_midnight / seconds_in_day)
-    data = np.zeros((len(series_sensor_data), window_size, features_data.shape[1]))
-    output = np.zeros((len(series_sensor_data), future_steps, series_sensor_data.shape[1]))
-    for i in range(future_steps):
-        output[:, i, :] = series_sensor_data.shift(-1 * i)  # Future steps
-    for i in range(window_size):
-        # 0 -> shift(window_size)
-        # 1 -> shift(window_size-1)
-        data[:, i, :] = features_data.shift(window_size - i)
-    return data[window_size:-future_steps, :, :], output[window_size:-future_steps, :]
-
-def prepare_data_activity_synthesis(d, window_size=70, dt=60,
-                              with_time=False, future_steps=20, sensor_id=24, **kwargs):
-    series_sensor_data = d.activity_reshape(dt)
-    if with_time:
-        seconds_in_day = 24 * 60 * 60
-        seconds_past_midnight = \
-            series_sensor_data.index.hour * 3600 + \
-            series_sensor_data.index.minute * 60 + \
-            series_sensor_data.index.second
-        series_sensor_data['sin_time'] = np.sin(2 * np.pi * seconds_past_midnight / seconds_in_day)
-        series_sensor_data['cos_time'] = np.cos(2 * np.pi * seconds_past_midnight / seconds_in_day)
-    data = np.zeros((len(series_sensor_data), window_size, series_sensor_data.shape[1]))
-    output = np.zeros((len(series_sensor_data), future_steps))
-    for i in range(future_steps):
-        output[:, i] = series_sensor_data.shift(-1 * i)[['activity']].values.reshape(1, -1)  # Future steps
-    for i in range(window_size):
-        # 0 -> shift(window_size)
-        # 1 -> shift(window_size-1)
-        data[:, i, :] = series_sensor_data.shift(window_size - i)
-    return data[window_size:-future_steps, :, :], output[window_size:-future_steps, :]
-
-
-def test_train_val_split(X, y, dt, n_val_days, n_test_days):
-    X_train = X[:-1 * (n_val_days + n_test_days) * (3600 // dt) * 24]
-    X_val = X[-(n_val_days + n_test_days) * (3600 // dt) * 24:-n_test_days * (3600 // dt) * 24]
-    X_test = X[-n_test_days * (3600 // dt) * 24:]
-    y_train = y[:-1 * (n_val_days + n_test_days) * (3600 // dt) * 24]
-    y_val = y[-(n_val_days + n_test_days) * (3600 // dt) * 24:-n_test_days * (3600 // dt) * 24]
-    y_test = y[-n_test_days * (3600 // dt) * 24:]
-
-    return (
-        X_train, y_train,
-        X_val, y_val,
-        X_test, y_test,
-    )
-
-def synthesize_sensors_multiple_days(dataset, folders, names, start_index, num_repetitions):
     models, model_args_all, kwargs_all = {}, {}, {}
     kwargs = None
     for sensor_id, folder in folders.items():
@@ -182,7 +87,12 @@ def synthesize_sensors_multiple_days(dataset, folders, names, start_index, num_r
             break
         for sensor_id, model in models.items():
             d0 = data_output[X_start:X_end].reshape(1, kwargs['window_size'], data.shape[1])
-            y0 = (model.predict(d0) > 0.5).astype(float)[0]
+
+            if deterministic:
+                y0 = (model.predict(d0) > 0.5).astype(float)[0]
+            else:
+                epsilon = np.random.standard_normal()*eps
+                y0 = (model.predict(d0) > (0.5 + epsilon)).astype(float)[0]
             data_output[X_end:X_prediction, kwargs['features'].index(sensor_id)] = y0
 
         X_start += kwargs['future_steps']
@@ -202,6 +112,16 @@ def synthesize_sensors_multiple_days(dataset, folders, names, start_index, num_r
     return input_data, output_data
 
 def synthesize_activity_multiple_days(dataset, folder, model_name, start_index, num_repetitions):
+    """Uses a trained model to synthesize sensor future sensor values.
+
+    :param dataset: The dataset that will be used
+    :param folder: The folder where the model is stored
+    :param model_name: The name of the model
+    :param start_index: Index of the dataset to start prediction
+    :param num_repetitions: Number of repetitions to repeat the prediction
+    :return: An input and output DataFrame which contain the input values and predicted values.
+    """
+
     model_args, kwargs = None, None
     with open("%s/%s_sensor_%d_model_args.json" % (folder, model_name, -1), 'r') as f:
         model_args = json.load(f)
@@ -243,21 +163,15 @@ def synthesize_activity_multiple_days(dataset, folder, model_name, start_index, 
 
     return data_output, data
 
-
-def evaluate_model(
+def evaluate_sensor_model(
         model,
         model_name,
         sensor_id,
         X_test,
         y_test,
-        is_activity=False,
         training_history=None,
         save_folder=None
 ):
-    if is_activity:
-        evaluate_model_activity(model, model_name, sensor_id, X_test, y_test, training_history,
-                                save_folder)
-        return
     """Evaluates a model and writes the metrics to a folder.
     """
     model_metrics = {}
@@ -397,41 +311,13 @@ def evaluate_model_activity(model,
     with open("%s_metrics.json" % base_path, 'w') as f:
         json.dump(model_metrics, f)
 
-
-def save_model(model_name, model, model_args, kwargs):
-    paths = list(
-        map(lambda f: int(f[6:]), filter(lambda s: s.startswith('model_'), os.listdir('.'))))
-    if len(paths) == 0:
-        folder = 'model_0'
-    else:
-        folder = 'model_%d' % (max(paths) + 1)
-    os.mkdir(folder)
-    model.save('%s/%s_sensor_%d_model.h5' % (folder, model_name, kwargs['sensor_id']))
-    plot_model(model, '%s/%s_sensor_%d_model.png' % (folder, model_name, kwargs['sensor_id']),
-               show_shapes=True)
-    with open("%s/%s_sensor_%d_model_args.json" % (folder, model_name, kwargs['sensor_id']),
-              'w') as f:
-        json.dump(model_args, f)
-    with open("%s/%s_sensor_%d_kwargs.json" % (folder, model_name, kwargs['sensor_id']), 'w') as f:
-        json.dump(kwargs, f)
-    return folder
-
-
-def load_model_parameters(folder, model_name, sensor_id):
-    model_args, kwargs = None, None
-    with open("%s/%s_sensor_%d_model_args.json" % (folder, model_name, sensor_id), 'r') as f:
-        model_args = json.load(f)
-    with open("%s/%s_sensor_%d_kwargs.json" % (folder, model_name, sensor_id), 'r') as f:
-        kwargs = json.load(f)
-    model = single_sensor_multistep_future(**model_args)
-    model.load_weights('%s/%s_sensor_%d_model.h5' % (folder, model_name, sensor_id))
-    return model_args, kwargs, model
-
-def train_activity_synthesis(d, model_name,
-                           load_weights=False,
-                           model=None,
-                           model_args=None,
-                           **kwargs):
+def create_train_activity_prediction_model(
+        d,
+        model_name,
+        load_weights=False,
+        model=None,
+        model_args=None,
+        **kwargs):
     window_size = kwargs.setdefault('window_size', 60)  # Number of steps to look back
     future_steps = kwargs.setdefault('future_steps',
                                      int(window_size * 0.2))  # Number of steps to look
@@ -445,7 +331,7 @@ def train_activity_synthesis(d, model_name,
         X_train, y_train,
         X_val, y_val,
         X_test, y_test,
-    ) = test_train_val_split(X, y, dt, 2, 2)
+    ) = train_val_test_split(X, y, dt, 2, 2)
     n_features = X.shape[2]  # 59
     for index, id in [(0, sensor_id)]:
         if model is None:
@@ -504,15 +390,16 @@ def train_activity_synthesis(d, model_name,
                                   ).history
         model.save(model_filepath)
         folder = save_model(model_name, model, model_args, kwargs)
-        evaluate_model(model, model_name, sensor_id, X_test, y_test_sensor, training_history=model_history,
-                       save_folder=folder, is_activity=True)
+        evaluate_model_activity(model, model_name, sensor_id, X_test, y_test, model_history,
+                                folder)
 
-
-def train_future_timesteps(d, model_name,
-                           load_weights=False,
-                           model=None,
-                           model_args=None,
-                           **kwargs):
+def create_train_sensor_prediction_model(
+        d,
+        model_name,
+        load_weights=False,
+        model=None,
+        model_args=None,
+        **kwargs):
     window_size = kwargs.setdefault('window_size', 60)  # Number of steps to look back
     future_steps = kwargs.setdefault('future_steps',
                                      int(window_size * 0.2))  # Number of steps to look
@@ -526,7 +413,7 @@ def train_future_timesteps(d, model_name,
         X_train, y_train,
         X_val, y_val,
         X_test, y_test,
-    ) = test_train_val_split(X, y, dt, 2, 2)
+    ) = train_val_test_split(X, y, dt, 2, 2)
     n_features = X.shape[2]  # 59
     for index, id in [(0, sensor_id)]:
         if model is None:
@@ -577,5 +464,5 @@ def train_future_timesteps(d, model_name,
                                   ).history
         model.save(model_filepath)
         folder = save_model(model_name, model, model_args, kwargs)
-        evaluate_model(model, model_name, sensor_id, X_test, y_test_sensor, training_history=model_history,
-                       save_folder=folder, is_activity=False)
+        evaluate_sensor_model(model, model_name, sensor_id, X_test, y_test_sensor, training_history=model_history,
+                       save_folder=folder)

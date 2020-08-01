@@ -1,83 +1,21 @@
-import tensorflow as tf
 from tensorflow.keras import backend as K
 from tensorflow.keras import layers, optimizers, models
 from tensorflow.keras.losses import SparseCategoricalCrossentropy, BinaryCrossentropy
-from tensorflow.keras.regularizers import l1
 from tensorflow.python.ops import math_ops
 
-
-def custom_loss(loss_metric, extra_weight_1=1000, extra_weight_all_zeros=100):
-    # Create a loss function that adds the MSE loss to the mean of all squared activations of a specific layer
-    @tf.function
-    def loss(y_true, y_pred):
-        rounded = K.round(y_pred)
-        bce = K.binary_crossentropy(y_true, y_pred, from_logits=False)
-        ones = K.greater(0.5, y_true)
-        not_equal = K.not_equal(ones, K.greater(0.5, rounded))
-        # Add extra loss for 1s which were predicted as a 0
-        bce = tf.math.multiply(bce, (1 + K.cast_to_floatx(not_equal) * extra_weight_1))
-        mean_per_batch = K.mean(bce, axis=1)
-        all_zeros = K.equal(0.0, K.sum(rounded, axis=1))
-        #Add extra weight to sequences of all 0s
-        mean_per_batch = tf.math.multiply(mean_per_batch, (1 + K.cast_to_floatx(
-            all_zeros)*extra_weight_all_zeros))
-        return K.mean(mean_per_batch, axis=-1)
-
-    # Return a function
-    return loss
-
-@tf.function
-def sequence_matching_loss(y_true, y_pred):
-    # #Two components: Number of activations and d
-    dist = 0.0
-    tf.print(K.shape(y_true))
-
-    batch_size = K.shape(y_true)[0]
-    prediction_length = K.shape(y_true)[1]
-    slice_size = prediction_length//6
-
-    def get_bc_slices(y_target, y_predicted):
-        slices = []
-        for slice_start in range(0, prediction_length, slice_size):
-            y_predicted_slice = tf.slice(y_predicted, slice_start, slice_size)
-            y_target_slice = tf.slice(y_target, slice_start, slice_size)
-            slices.append(K.binary_crossentropy(y_target_slice, y_predicted_slice))
-
-    rolls = []
-    for roll_size in range(-2, 2):
-        y_pred_rolled = tf.roll(y_pred, roll_size, axis=1)
-        for i in range(batch_size):
-            slice_bc = get_bc_slices(y_true[i], y_pred_rolled[i])
-            rolls.append(slice_bc)
-        rolls = tf.convert_to_tensor(rolls)
-        tf.print(rolls)
-        s1 = K.sum(y_true[i])
-        s2 = K.sum(K.cast_to_floatx(K.greater(0.5, y_pred[i])))
-        # tf.print(s1)
-        # tf.print(s2)
-        dist += K.abs((s1 - s2))
-
-        w1 = tf.where(K.greater(0.5, y_true[i]))
-        w2 = tf.where(K.greater(0.5, y_pred[i]))
-        # tf.print(w1)
-        # tf.print(w2)
-
-        distance = tf.reduce_sum(tf.abs(tf.subtract(w1, tf.expand_dims(w2, 1))),
-                                 axis=2)
-        # tf.print(distance)
-        _, top_k_indices = tf.compat.v1.nn.top_k(tf.negative(distance), k=1)
-        # tf.print(top_k_indices)
-        # _dist, _path = fastdtw(y_true[i].eval(), y_pred[i].eval())
-        # dist += _dist
-    return dist
-
 class WeightedSparseCategoricalCrossentropy(SparseCategoricalCrossentropy):
+    """Sparse Categorical loss, with weights added for imbalanced dataset. Meant to prevent the idle
+    activity from always being predicted, as this activity appears more frequently.
+    """
     def __call__(self, y_true, y_pred, sample_weight=None):
         sw = K.cast_to_floatx(K.equal(y_true, 0.0))*0.01
         sw = math_ops.add(sw, K.cast_to_floatx(K.not_equal(y_true, 0.0))*1)
         return super().__call__(y_true, y_pred, sample_weight=sw)
 
 class WeightedBinaryCrossentropy(BinaryCrossentropy):
+    """A balanced BinaryCrossentropy loss. Helps to learn models for sensors with very few
+    activations.
+    """
     def __call__(self, y_true, y_pred, sample_weight=None):
         """ Automatically calculates the weight of 0-1 activations using the number of
         activations in y_true.
@@ -103,6 +41,10 @@ def single_sensor_multistep_future(
         learning_rate=0.00476,
         second_layer_input=None
 ):
+    """Creates a model which can be used to learn the activations of a single sensor. A variable
+    number of future timesteps can be predicted, although predicting 1 timestep ahead is more
+    accurate.
+    """
     model = models.Sequential()
     model.add(layers.GRU(input_n_units, activation=input_activation, input_shape=(timesteps,
                                                                                 n_features),
@@ -116,8 +58,6 @@ def single_sensor_multistep_future(
         model.add(layers.Dense(hidden_layer_units, activation=hidden_layer_activation))
     model.add(layers.Dense(future_timesteps, activation=output_activcation))
     adam = optimizers.Adam(learning_rate)
-    # bc = losses.BinaryCrossentropy()
-    # loss = sequence_matching_loss(bc)
     loss = WeightedBinaryCrossentropy()
 
     model.compile(loss=loss, optimizer=adam, metrics=['accuracy'])
@@ -138,6 +78,14 @@ def activity_synthesis_vector_output(
         learning_rate=0.00476,
         second_layer_input=None,
 ):
+    """Creates a model which can be used to learn a pattern of activities in a day.
+
+    The input should have shape [#Samples, #Past timesteps, #features]
+
+    The output is a [#Samples, #Future Timesteps, #Activities] shape where the #Activities is a
+    vector (which sums to 1) of probabilities of the next activity being activated.
+
+    """
     model = models.Sequential()
     model.add(layers.GRU(input_n_units, activation=input_activation, input_shape=(timesteps, n_features),
                    return_sequences=False))
@@ -158,7 +106,11 @@ def activity_synthesis_convolutional(
         future_timesteps,
         n_features,
         n_activities,
+        learning_rate=0.00476
 ):
+    """A Convolutional Network which can be used instead of the recurrent models above to predict
+    activities.
+    """
     model = models.Sequential()
     model.add(layers.Conv1D(filters=64,
                             kernel_size=2,
@@ -169,10 +121,6 @@ def activity_synthesis_convolutional(
     model.add(layers.RepeatVector(future_timesteps))
 
     model.add(layers.TimeDistributed(layers.Dense(n_activities, activation='softmax')))
-    adam = optimizers.Adam(learning_rate)
-
-    model.add(layers.Dense(50, activation='relu'))
-    model.add(layers.Dense(future_timesteps))
     adam = optimizers.Adam(learning_rate)
     loss = WeightedSparseCategoricalCrossentropy()
     model.compile(loss=loss, optimizer=adam, metrics=['accuracy'])
@@ -197,6 +145,8 @@ def single_sensor_multistep_future_encoder_decoder(
         output_activcation='sigmoid',
         learning_rate=0.00476
 ):
+    """An encoder-decoder model which can be used to predict future sensor values.
+    """
     model = models.Sequential()
     # encoder
     input_return_sequences=encoder_extra_lstm
@@ -215,48 +165,3 @@ def single_sensor_multistep_future_encoder_decoder(
     model.compile(loss='binary_crossentropy', optimizer=adam, metrics=['accuracy'])
     model.summary()
     return model
-
-def get_model(timesteps, n_features, lr):
-    lstm_autoencoder = models.Sequential()
-    lstm_autoencoder.add(layers.LSTM(10, activation='relu', input_shape=(timesteps, n_features),
-                              return_sequences=True))
-    lstm_autoencoder.add(layers.LSTM(6, activation='relu', return_sequences=True))
-    lstm_autoencoder.add(layers.LSTM(1, activation='relu'))
-    lstm_autoencoder.add(layers.Dense(10, kernel_initializer='glorot_normal', activation='relu'))
-    lstm_autoencoder.add(layers.Dense(10, kernel_initializer='glorot_normal', activation='relu'))
-    lstm_autoencoder.add(layers.Dense(n_features, activation='sigmoid'))
-    adam = optimizers.Adam(lr)
-    lstm_autoencoder.compile(loss='binary_crossentropy', optimizer=adam)
-    lstm_autoencoder.summary()
-    return lstm_autoencoder
-
-def get_model_individual_sensor(timesteps, n_features, lr):
-    lstm_regular = models.Sequential()
-    lstm_regular.add(layers.LSTM(15, activation='relu', input_shape=(timesteps, n_features),
-                              return_sequences=True))
-    lstm_regular.add(layers.LSTM(8, activation='relu', return_sequences=False))
-    lstm_regular.add(layers.Dense(10, kernel_initializer='glorot_normal', activation='relu'))
-    lstm_regular.add(layers.Dense(10, kernel_initializer='glorot_normal', activation='relu'))
-    lstm_regular.add(layers.Dense(1, activation='sigmoid'))
-    adam = optimizers.Adam(lr)
-    lstm_regular.compile(loss='binary_crossentropy', optimizer=adam, metrics=['accuracy'])
-    lstm_regular.summary()
-    return lstm_regular
-
-def get_model_all_sensors(timesteps, n_features, lr):
-    lstm_regular = models.Sequential()
-    lstm_regular.add(layers.LSTM(15, activation='relu', input_shape=(timesteps, n_features),
-                              return_sequences=True))
-    lstm_regular.add(layers.Dropout(0.3))
-    lstm_regular.add(layers.LSTM(8, activation='relu', return_sequences=False))
-    lstm_regular.add(layers.Dropout(0.3))
-    lstm_regular.add(layers.Dense(10, kernel_initializer='glorot_normal', activation='relu'))
-    lstm_regular.add(layers.Dropout(0.3))
-    lstm_regular.add(layers.Dense(10, kernel_initializer='glorot_normal', activation='relu',
-                           kernel_regularizer=l1(1e-4)))
-    lstm_regular.add(layers.Dropout(0.3))
-    lstm_regular.add(layers.Dense(n_features, activation='sigmoid'))
-    adam = optimizers.Adam(lr)
-    lstm_regular.compile(loss='binary_crossentropy', optimizer=adam, metrics=['accuracy'])
-    lstm_regular.summary()
-    return lstm_regular

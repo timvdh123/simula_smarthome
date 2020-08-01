@@ -1,7 +1,4 @@
 # %%
-import csv
-import json
-import os
 from collections import Counter
 
 import matplotlib.pyplot as plt
@@ -239,44 +236,3 @@ class Dataset:
             print("\nSensor[%d] %s was activated %d times" % (id, self.lookup_sensor_id(id), count))
             duration = (data['end_time'] - data['start_time']).astype('timedelta64[s]').astype(int)
             print("Mean activation time: %5.2f +- %3.2e s" % (duration.mean(), duration.std()))
-
-def combine_model_results():
-    paths = list(filter(lambda s: s.startswith('model_'), os.listdir('.')))
-
-    kwargs_fields = ['model_name', 'model_number', 'sensor_id', 'window_size', 'future_steps',
-                     'dt', 'with_time',
-                     'batch', 'epochs']
-    metrics_fields = ['loss', 'accuracy', 'val_loss', 'val_accuracy', 'mean true negatives', 'mean false positives', 'mean false negatives', 'mean true positives', 'mean_binary_accuracy']
-    fieldnames = kwargs_fields + metrics_fields
-    if os.path.exists('models_table.csv'):
-        os.remove('models_table.csv')
-
-    data = []
-    for p in paths:
-        name = os.listdir(p)[0].split('_sensor')[0]
-        number = p.split('_')[1]
-        kwargs, model_args, metrics = None, None, None
-        kwargs_file = p + '/' + list(filter(lambda s: s.endswith('kwargs.json'), os.listdir(p)))[0]
-        model_args_file =  p + '/' + list(filter(lambda s: s.endswith('model_args.json'), os.listdir(p)))[0]
-        metrics_file =  p + '/' + list(filter(lambda s: s.endswith('metrics.json'),
-                                              os.listdir(p)))[0]
-        with open(kwargs_file, 'r') as f:
-            kwargs = json.load(f)
-        with open(model_args_file, 'r') as f:
-            model_args = json.load(f)
-        with open(metrics_file, 'r') as f:
-            metrics = json.load(f)
-        if model_args is not None:
-            kwargs.update(model_args)
-        if metrics is not None:
-            kwargs.update(metrics)
-        kwargs['model_name'] = name
-        kwargs['model_number'] = number
-        kwargs = {k: v for k, v in kwargs.items() if k in fieldnames}
-        write_header = not os.path.exists('models_table.csv')
-        with open('models_table.csv', 'a') as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            if write_header:
-                writer.writeheader()
-            writer.writerow(kwargs)
-
