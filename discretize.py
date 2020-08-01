@@ -1,17 +1,12 @@
 # %%
-import csv
 from collections import Counter
 
+import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import seaborn as sns
-import numpy as np
-import matplotlib.pyplot as plt
-from sklearn.metrics import classification_report
 from hmmlearn import hmm
-import hmmlearn.utils
-import hmmlearn.stats
-
-from similarity import LOF, isolation_forest, isolation_forest_all
+from sklearn.metrics import classification_report
 
 
 class Dataset:
@@ -154,7 +149,8 @@ class Dataset:
                 np.array([i for i in range(len(sensor_label_indices))
                           if i != sensor_label_indices.index(row['id'])])
             ] = 0
-        return table
+        return pd.DataFrame(table, columns=sensor_label_indices,
+                            index=time)
 
     def sensor_values_reshape(self, dt=60):
         """Discretizes the sensor data into bins. Sensor value is 1 if a bin overlaps with
@@ -169,7 +165,8 @@ class Dataset:
         sensor_label_indices = list(self.sensor_data.id.unique())
         table = np.zeros((len(time), len(sensor_label_indices)))
 
-        sorted_start_time = self.sensor_data.sort_values(by=['start_time'])
+        sorted_start_time = self.sensor_data.sort_values(by=[
+            'start_time'])
         sorted_start_time['bin_start'] = np.digitize(sorted_start_time['start_time'].astype(int),
                                                      time.astype(int))
         sorted_start_time['bin_end'] = np.digitize(sorted_start_time['end_time'].astype(int),
@@ -183,14 +180,14 @@ class Dataset:
         return pd.DataFrame(table, columns=sensor_label_indices,
                             index=time)
 
-    def activity_reshape(self):
+    def activity_reshape(self, dt=60):
         """Discretizes the activity data into bins. Value is activity_id if a bin overlaps with
         start_time, end_time."""
 
         time = np.arange(
             start=pd.Timestamp(self.sensor_data.start_time.min().date()),
             stop=pd.Timestamp(self.sensor_data.end_time.max().date() + pd.Timedelta(1, 'day')),
-            step=pd.to_timedelta(60, 's')
+            step=pd.to_timedelta(dt, 's')
         ).astype('datetime64[ns]')
 
         table = np.zeros(len(time))
@@ -205,11 +202,11 @@ class Dataset:
             table[
                 np.arange(row.bin_start, row.bin_end),
             ] = row.id
-
-        return table.astype(int)
+        return pd.DataFrame(table.astype(int), columns=['activity'],
+                     index=time)
 
     def learn_hmm(self):
-        """Learns a multinomial hidden markovel model over the sensor data."""
+        """Learns a multinomial hidden markov model over the sensor data."""
         remodel = hmm.MultinomialHMM(n_components=self.sensor_data.id.nunique(),
                                      n_iter=100, tol=1e-8)
         table = self.last_fired()
@@ -228,22 +225,14 @@ class Dataset:
 
     def sensor_data_summary(self):
         """Prints a summary of the data"""
+        counts = {}
         for id in self.sensor_data.id.unique():
+            counts[id] = len(self.sensor_data.loc[self.sensor_data.id == id])
+        sorted_counts = list(counts.items())
+        sorted_counts.sort(key = lambda count: count[1], reverse=True)
+
+        for id, count in sorted_counts:
             data = self.sensor_data.loc[self.sensor_data.id == id]
-            print("\nSensor %s was activated %d times" % (self.lookup_sensor_id(id), len(data)))
+            print("\nSensor[%d] %s was activated %d times" % (id, self.lookup_sensor_id(id), count))
             duration = (data['end_time'] - data['start_time']).astype('timedelta64[s]').astype(int)
             print("Mean activation time: %5.2f +- %3.2e s" % (duration.mean(), duration.std()))
-# %%
-if __name__ == '__main__':
-    bathroom1 = Dataset.parse('dataset/', 'bathroom1')
-    kitchen1 = Dataset.parse('dataset/', 'kitchen1')
-    combined = bathroom1.combine(kitchen1)
-    combined.sensor_data_summary()
-    LOF(combined, ['duration'], 2)
-    isolation_forest(combined)
-
-    bathroom2 = Dataset.parse('dataset/', 'bathroom2')
-    kitchen2 = Dataset.parse('dataset/', 'kitchen2')
-    combined2 = bathroom2.combine(kitchen2)
-
-
