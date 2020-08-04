@@ -1,1 +1,0 @@
-{"learning_rate": 0.001, "hidden_layer_activation": "tanh", "hidden_layers": 1, "hidden_layer_units": 120, "input_n_units": 120, "second_layer_input": 120}

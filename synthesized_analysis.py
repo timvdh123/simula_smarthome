@@ -49,8 +49,8 @@ def calc_distribution(sequence: np.array) -> np.array:
     p_1 = (sequence > 0.5).sum()/len(sequence)
     return np.array([p_0, p_1])
 
-def print_entropy_information():
-    real, synthesized = load_data('input.csv', 'output.csv')
+def get_entropy_information(input, synthesized):
+    real, synthesized = load_data(input, synthesized)
     day = 24*4
     rows = []
     for sensor in synthesized.columns:
@@ -108,6 +108,3 @@ def print_entropy_information():
     df = pd.DataFrame(rows)
     df.to_csv('entropy.csv')
         # print("Approximate entropy {}".format(ApEn(sensor_data, 24*4, 3)))
-
-if __name__ == '__main__':
-    print_entropy_information()

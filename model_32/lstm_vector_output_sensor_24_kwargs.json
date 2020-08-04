@@ -1,1 +1,0 @@
-{"epochs": 100, "window_size": 96, "future_steps": 1, "dt": 900, "with_time": true, "batch": 128, "sensor_id": 24, "features": [24, 5, 6, 9]}

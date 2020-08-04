@@ -6,6 +6,7 @@ from tqdm import tqdm
 
 from discretize import Dataset
 from similarity import LOF_all_data, isolation_forest_all, isolation_forest, LOF
+from synthesized_analysis import get_entropy_information
 from training import create_train_activity_prediction_model, create_train_sensor_prediction_model, \
     synthesize_sensors_multiple_days
 from utils import plot_uncertainty
@@ -134,7 +135,7 @@ if __name__ == '__main__':
     run_activity_model_training()
 
     # Generate 10 days synthetic data
-    folders = {24: 'model_32', 5: 'model_33', 6: 'model_30', 9: 'model_31'}
+    folders = {24: 'results/model_32', 5: 'results/model_33', 6: 'results/model_30', 9: 'results/model_31'}
     model_names = {sensor_id: 'lstm_vector_output' for sensor_id in [24, 5, 6, 9]}
     start = 24 * 24 * 4
     n_steps = 24 * 4 * 10
@@ -142,6 +143,9 @@ if __name__ == '__main__':
     run_sensor_synthesis(folders, model_names, start, n_steps, window_size)
     data = pd.read_csv('output.csv', index_col=0)
     input_data = pd.read_csv('input.csv', index_col=0)
+
+    # Print entropy information
+    get_entropy_information(input_data, data)
 
     # Generate 10 days synthetic data 1000 times with some gaussian noise
     run_multiple_non_deterministic(folders, model_names, start, n_steps,
