@@ -5,6 +5,7 @@ import pandas as pd
 from tqdm import tqdm
 
 from discretize import Dataset
+from models import single_sensor_multistep_future_encoder_decoder
 from similarity import LOF_all_data, isolation_forest_all, isolation_forest, LOF
 from synthesized_analysis import get_entropy_information
 from training import create_train_activity_prediction_model, create_train_sensor_prediction_model, \
@@ -58,7 +59,7 @@ def run_sensor_model_training():
         try:
             create_train_sensor_prediction_model(combined1,
                                                  model_args=model_args,
-                                                 model_name='lstm_vector_output',
+                                                 model_name='single_step_prediction',
                                                  epochs=100,
                                                  window_size=4 * 24,
                                                  future_steps=1,
@@ -67,7 +68,44 @@ def run_sensor_model_training():
                                                  batch=128,
                                                  sensor_id=sensor_id,
                                                  features=[24, 5, 6, 9],
-                                                 load_weights=True)
+                                                 load_weights=False)
+        except Exception as e:
+            print(e)
+
+        try:
+            create_train_sensor_prediction_model(combined1,
+                                                 model_args=model_args,
+                                                 model_name='vector_output',
+                                                 epochs=1500,
+                                                 window_size=24*5,
+                                                 future_steps=24,
+                                                 dt=3600,  # Predict 1 day ahead.
+                                                 with_time=True,
+                                                 batch=128,
+                                                 sensor_id=sensor_id,
+                                                 features=[sensor_id],
+                                                 load_weights=False)
+        except Exception as e:
+            print(e)
+        try:
+            model = single_sensor_multistep_future_encoder_decoder(
+                timesteps=4*24,
+                future_timesteps=24,
+                n_features=3,
+            )
+            create_train_sensor_prediction_model(combined1,
+                                                 model_args=model_args,
+                                                 model_name='encoder_decoder',
+                                                 model=model,
+                                                 epochs=1500,
+                                                 window_size=24 * 5,
+                                                 future_steps=24,
+                                                 dt=3600,  # Predict 30 minutes ahead.
+                                                 with_time=True,
+                                                 batch=128,
+                                                 sensor_id=sensor_id,
+                                                 features=[sensor_id],
+                                                 load_weights=False)
         except Exception as e:
             print(e)
 
