@@ -10,7 +10,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import tensorflow as tf
 
-from lstm import save_model, evaluate_model, prepare_data_future_steps
+from training import save_model, evaluate_sensor_model, prepare_data_future_steps
 
 
 def create_generator(
@@ -146,6 +146,7 @@ def training(d, model_name,
     batch = kwargs.setdefault('batch', 128)
     dt = kwargs.setdefault('dt', 600)
     sensor_id = kwargs.setdefault('sensor_id', 24)
+    features = kwargs.setdefault('features', [sensor_id])
 
     X, y = prepare_data_future_steps(d, **kwargs)
     y = y[:, :, 0]
@@ -238,5 +239,5 @@ def training(d, model_name,
             # print("GAN [Loss=%3.2f, Accuracy=%3.2f]" % (metrics['loss'],
             #                                             metrics['accuracy']))
     folder = save_model(model_name, generator, {}, kwargs)
-    evaluate_model(generator, model_name, sensor_id, X_test, y_test, training_history=None,
+    evaluate_sensor_model(generator, model_name, sensor_id, X_test, y_test, training_history=None,
                    save_folder=folder)
