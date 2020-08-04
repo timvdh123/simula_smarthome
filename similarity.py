@@ -1,10 +1,9 @@
-import pandas as pd
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 import seaborn as sns
 from sklearn.ensemble import IsolationForest
 from sklearn.neighbors import LocalOutlierFactor
-from sklearn.metrics import pairwise_distances
 from sklearn.preprocessing import MinMaxScaler
 
 
@@ -29,6 +28,12 @@ def distance_duration_start(X, Y):
     return (((diff/12*60)**1 + np.abs(X[1]-Y[1])**1))
 
 def LOF(d, features, n_neighbours=5):
+    """Run LOF on each sensor separately
+
+    :param d: the dataset
+    :param features: some combination of ['start_time', 'duration']
+    :param n_neighbours: the number of neighbours used in LOF
+    """
     for id in d.sensor_data.id.unique():
         sensor_data = d.sensor_data.loc[d.sensor_data.id == id]
         sensors_start_time = sensor_data['start_time'].dt.hour * 60 + sensor_data['start_time'].dt.minute
@@ -58,6 +63,13 @@ def LOF(d, features, n_neighbours=5):
         plt.show()
 
 def isolation_forest(d):
+    """Use an isolation forest to find outliers for each sensor separately.
+
+    :param d: the dataset
+    :type d:
+    :return: nothing
+    :rtype:
+    """
     for id in d.sensor_data.id.unique():
         sensor_data = d.sensor_data.loc[d.sensor_data.id == id]
         sensors_start_time = sensor_data['start_time'].dt.hour * 60 + sensor_data[
@@ -85,6 +97,14 @@ def isolation_forest(d):
         plt.show()
 
 def isolation_forest_all(d):
+    """Use an isolation forest to find outliers with all data combined. Combine the results in a
+    single plot
+
+    :param d: the dataset
+    :type d:
+    :return: nothing
+    :rtype:
+    """
     sensor_data = d.sensor_data
     sensors_start_time = sensor_data['start_time'].dt.hour * 60 + sensor_data[
         'start_time'].dt.minute
@@ -126,6 +146,14 @@ def isolation_forest_all(d):
 
 
 def LOF_all_data(d):
+    """Use LOF to find outliers with all data combined. Combine the results in a
+    single plot
+
+    :param d: the dataset
+    :type d:
+    :return: nothing
+    :rtype:
+    """
     sensor_data = d.sensor_data
     sensors_start_time = sensor_data['start_time'].dt.hour * 60 + sensor_data[
         'start_time'].dt.minute

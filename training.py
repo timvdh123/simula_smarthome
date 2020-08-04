@@ -163,6 +163,52 @@ def synthesize_activity_multiple_days(dataset, folder, model_name, start_index, 
 
     return data_output, data
 
+def evaluate_sensor_model_single_timestep(
+        model,
+        model_name,
+        sensor_id,
+        X_test,
+        y_test,
+        training_history=None,
+        save_folder=None
+):
+    """Evaluate model which predicts single time step ahead.
+    """
+    model_metrics = {}
+    base_path = "%s_sensor_%d" % (model_name, sensor_id)
+    if save_folder is not None:
+        base_path = "%s/%s" % (save_folder, base_path)
+    yPredTest = model.predict(X_test) > 0.5
+    yPredTestBinary = (yPredTest > 0.5).astype(int)
+    y_test = y_test[:, :, 0]
+    y_test = (y_test > 0.5).astype(int)
+    accuracy = metrics.binary_accuracy(y_test, yPredTestBinary)
+    conf_matrix = confusion_matrix(y_test, yPredTestBinary)
+    model_metrics["mean true negatives"] = np.mean(conf_matrix[0, 0])
+    model_metrics["mean false positives"] = np.mean(conf_matrix[0, 1])
+    model_metrics["mean false negatives"] = np.mean(conf_matrix[1, 0])
+    model_metrics["mean true positives"] = np.mean(conf_matrix[1, 1])
+    model_metrics["mean_binary_accuracy"] = float(np.mean(accuracy))
+    base_path = "%s_sensor_%d" % (model_name, sensor_id)
+    with open("%s_metrics.json" % base_path, 'w') as f:
+        json.dump(model_metrics, f)
+    y_test_sensor = y_test.reshape(1, -1)[0]
+    yPredTestBinary = yPredTestBinary.reshape(1, -1)[0]
+    distance, path = fastdtw(y_test_sensor, yPredTestBinary)
+    fig, ax = plt.subplots()
+    ax.plot(y_test_sensor, label='Actual')
+    ax.plot(yPredTestBinary, label='Predicted')
+    plt.legend()
+    plt.title("Sensor %d \n Accuracy = %3.2f \n DTW distance = %3.2f" % (
+        sensor_id,
+        metrics.binary_accuracy(y_test.reshape(1, -1), yPredTestBinary.reshape(1, -1))[
+            0].numpy(),
+        distance
+    ))
+    plt.savefig("%s_figure.png" % base_path)
+    plt.show()
+
+
 def evaluate_sensor_model(
         model,
         model_name,
@@ -172,7 +218,8 @@ def evaluate_sensor_model(
         training_history=None,
         save_folder=None
 ):
-    """Evaluates a model and writes the metrics to a folder.
+    """Evaluates a model which predicts multiple time steps ahead and writes the metrics to a
+    folder.
     """
     model_metrics = {}
     base_path = "%s_sensor_%d" % (model_name, sensor_id)
@@ -464,5 +511,38 @@ def create_train_sensor_prediction_model(
                                   ).history
         model.save(model_filepath)
         folder = save_model(model_name, model, model_args, kwargs)
-        evaluate_sensor_model(model, model_name, sensor_id, X_test, y_test_sensor, training_history=model_history,
-                       save_folder=folder)
+        if future_steps == 1:
+            evaluate_sensor_model_single_timestep(model, model_name, sensor_id, X_test,
+                                                  y_test_sensor, training_history=model_history,
+                                                  save_folder=folder)
+        else:
+            evaluate_sensor_model(model, model_name, sensor_id, X_test, y_test_sensor,
+                                  training_history=model_history, save_folder=folder)
+
+def run_activity_model_training():
+    bathroom1 = Dataset.parse('dataset/', 'bathroom1')
+    kitchen1 = Dataset.parse('dataset/', 'kitchen1')
+    combined1 = bathroom1.combine(kitchen1)
+
+    # Run vector output model
+    model_args = {
+        "learning_rate": 1e-3,
+        "hidden_layer_activation": 'tanh',
+        "hidden_layers": 1,
+        "hidden_layer_units": 120,
+        "input_n_units": 120,
+        "second_layer_input": 120,
+        "n_activities": 25
+    }
+
+    create_train_activity_prediction_model(combined1,
+                                           model_args=model_args,
+                                           model_name='vector_output_activity_synthesis',
+                                           epochs=100,
+                                           window_size=60 * 24,
+                                           future_steps=1,
+                                           dt=60,
+                                           with_time=True,
+                                           batch=128,
+                                           load_weights=True,
+                                           sensor_id=-1)

@@ -5,6 +5,8 @@ import pandas as pd
 from entropy import sample_entropy
 from scipy.stats import entropy
 
+import matplotlib.pyplot as plt
+
 def load_data(input: str, synthesized: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """ Loads a synthesized dataset.
     :param input: path to the input csv
@@ -16,7 +18,8 @@ def load_data(input: str, synthesized: str) -> Tuple[pd.DataFrame, pd.DataFrame]
     return in_dataset, synthesized_dataset
 
 def ApEn(U, m, r) -> float:
-    """Approximate_entropy calculation. From wikipedia"""
+    """Approximate_entropy calculation. Code from
+    https://en.wikipedia.org/wiki/Approximate_entropy"""
 
     def _maxdist(x_i, x_j):
         return max([abs(ua - va) for ua, va in zip(x_i, x_j)])
@@ -46,29 +49,43 @@ def calc_distribution(sequence: np.array) -> np.array:
     p_1 = (sequence > 0.5).sum()/len(sequence)
     return np.array([p_0, p_1])
 
-def print_entropy_information():
-    real, synthesized = load_data('input.csv', 'output.csv')
+def get_entropy_information(input, synthesized):
+    real, synthesized = load_data(input, synthesized)
     day = 24*4
+    rows = []
     for sensor in synthesized.columns:
-        print("-----------------Sensor {}-------------".format(sensor))
+        sample_entropy_order=16
+        real_entropy_dict = {'Sensor id': '%s (real)' % sensor}
+        synthesized_entropy_dict = {'Sensor id': '%s (synthesized)' % sensor}
+
         sensor_data = synthesized[[sensor]].values.reshape(1, -1)[0]
         real_sensor_data = real[[sensor]].values.reshape(1, -1)[0]
 
-        print("Sample entropy [Synthesized] {:.3f}".format(sample_entropy(sensor_data, order=8)))
-        print("Sample entropy [Real] {:.3f}".format(sample_entropy(real_sensor_data, order=8)))
+        fig, ax = plt.subplots()
 
-        sample_entropy_real = [sample_entropy(real_sensor_data[i:(i+day)], order=8)
+        pd.plotting.autocorrelation_plot(real_sensor_data, ax=ax, label='Real')
+        pd.plotting.autocorrelation_plot(sensor_data, ax=ax, label='Synthesized')
+        ax.set_xlim(0, len(sensor_data))
+        ax.legend()
+        ax.set_title("Sensor %s autocorrelation plot" % sensor)
+        plt.show()
+
+
+
+        real_entropy_dict['Sample entropy'] = sample_entropy(real_sensor_data, order=sample_entropy_order)
+        synthesized_entropy_dict['Sample entropy'] = sample_entropy(sensor_data, order=sample_entropy_order)
+
+        sample_entropy_real = [sample_entropy(real_sensor_data[i:(i+day)], order=sample_entropy_order)
                         for i in range(0, len(real_sensor_data), day)]
-        sample_entropy_synthesized = [sample_entropy(sensor_data[i:(i+day)], order=8)
+        sample_entropy_synthesized = [sample_entropy(sensor_data[i:(i+day)], order=sample_entropy_order)
                         for i in range(0, len(sensor_data), day)]
         sample_entropy_real = np.array(sample_entropy_real)
         sample_entropy_synthesized = np.array(sample_entropy_synthesized)
         sample_entropy_real = sample_entropy_real[~np.isnan(sample_entropy_real)]
         sample_entropy_synthesized = sample_entropy_synthesized[~np.isnan(sample_entropy_synthesized)]
 
-        print("Sample entropy 24 hour windows [Synthesized] {:.3f}".format(np.mean(sample_entropy_synthesized)))
-        print("Sample entropy 24 hour windows [Real] {:.3f}".format(np.mean(sample_entropy_real)))
-
+        real_entropy_dict['Sample entropy 24 hours'] = np.mean(sample_entropy_real)
+        synthesized_entropy_dict['Sample entropy 24 hours'] = np.mean(sample_entropy_synthesized)
 
         entropy_real = [entropy(pk=calc_distribution(real_sensor_data[i:(i+day)]))
                         for i in range(0, len(real_sensor_data), day)]
@@ -80,23 +97,14 @@ def print_entropy_information():
         entropy_real = entropy_real[~np.isnan(entropy_real)]
         entropy_synthesized = entropy_synthesized[~np.isnan(entropy_synthesized)]
 
-        print("Synthesized Entropy {:.3f}".format(entropy(pk=calc_distribution(sensor_data),
-                                                         base=2)))
-        print("Real Entropy {:.3f}".format(entropy(pk=calc_distribution(real_sensor_data), base=2)))
+        real_entropy_dict['Entropy 24 hours'] = np.mean(entropy_real)
+        synthesized_entropy_dict['Entropy 24 hours'] = np.mean(entropy_synthesized)
 
-        print("Mean 24-hour Synthesized Entropy {:.3f}".format(np.mean(entropy_synthesized)))
-        print("Mean 24-hour Real Entropy {:.3f}".format(np.mean(entropy_real)))
+        real_entropy_dict['Entropy'] = np.mean(entropy(pk=calc_distribution(real_sensor_data), base=2))
+        synthesized_entropy_dict['Entropy'] = entropy(pk=calc_distribution(sensor_data), base=2)
+        rows.append(real_entropy_dict)
+        rows.append(synthesized_entropy_dict)
 
-        entropy_synthesized = [entropy(
-            pk=calc_distribution(sensor_data[i:(i+day)]),
-            qk=calc_distribution(real_sensor_data)
-        )
-                        for i in range(0, len(sensor_data), day)]
-        entropy_real = np.array(entropy_real)
-        entropy_synthesized = np.array(entropy_synthesized)
-
-        print("\n")
+    df = pd.DataFrame(rows)
+    df.to_csv('entropy.csv')
         # print("Approximate entropy {}".format(ApEn(sensor_data, 24*4, 3)))
-
-if __name__ == '__main__':
-    print_entropy_information()
