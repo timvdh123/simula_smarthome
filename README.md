@@ -6,7 +6,6 @@ A detailed report documenting the results of the internship can be found in  [do
 The dataset that was used in this repository is from [here](https://sites.google.com/site/tim0306/)
 Kasteren, T.L.M. (2010).
 
-
 To reproduce the results in the report, run the following commands
 
 ```bash
