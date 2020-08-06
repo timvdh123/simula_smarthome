@@ -225,9 +225,20 @@ class Dataset:
 
     def sensor_data_summary(self):
         """Prints a summary of the data"""
+        rows = []
         counts = {}
         for id in self.sensor_data.id.unique():
-            counts[id] = len(self.sensor_data.loc[self.sensor_data.id == id])
+            data = self.sensor_data.loc[self.sensor_data.id == id]
+            counts[id] = len(data)
+            duration = (data['end_time'] - data['start_time']).astype('timedelta64[s]').astype(int)
+            rows.append({
+                'id': id,
+                'name': self.lookup_sensor_id(id),
+                'activations': len(data),
+                'mean duration': duration.mean(),
+                'std duration': duration.std()
+            })
+        pd.DataFrame(rows).to_csv('%s_data_summary.csv' % self.prefix.replace('/', '_'))
         sorted_counts = list(counts.items())
         sorted_counts.sort(key = lambda count: count[1], reverse=True)
 

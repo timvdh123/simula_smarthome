@@ -158,6 +158,14 @@ if __name__ == '__main__':
     kitchen1 = Dataset.parse('dataset/', 'kitchen1')
     combined1 = bathroom1.combine(kitchen1)
 
+    combined1.sensor_data_summary()
+
+    bathroom2 = Dataset.parse('dataset/', 'bathroom2')
+    kitchen2 = Dataset.parse('dataset/', 'kitchen2')
+    combined2 = bathroom2.combine(kitchen2)
+
+    combined2.sensor_data_summary()
+
     # Creates LOF and isolation forest plots
     LOF(combined1, ['duration'])
     LOF(combined1, ['start_time'])
