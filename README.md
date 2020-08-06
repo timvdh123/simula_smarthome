@@ -1,4 +1,4 @@
-# simula_smarthome
+# simula_summer_internship
 ## Analysis of Smart Home Dataset
 The dataset that was used in this repository is from [here](https://sites.google.com/site/tim0306/)
 Kasteren, T.L.M. (2010).
