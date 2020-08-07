@@ -1,0 +1,2 @@
+{"epochs": 3000, "window_size": 120, "future_steps": 120, "dt": 3600, "with_time": true,
+  "batch": 128, "sensor_id": 24}

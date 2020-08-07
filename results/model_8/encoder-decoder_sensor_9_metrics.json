@@ -1,0 +1,1 @@
+{"loss": 0.0967695489525795, "accuracy": 0.2708333432674408, "val_loss": 0.6321287751197815, "val_accuracy": 0.0833333358168602, "mean true negatives": 109.95833333333333, "mean false positives": 2.6458333333333335, "mean false negatives": 7.166666666666667, "mean true positives": 0.22916666666666666, "mean_binary_accuracy": 0.9182291030883789}
